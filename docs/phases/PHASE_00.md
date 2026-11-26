@@ -42,7 +42,7 @@ wallets/keys/signing, authentication, public deployment.
 | Smoke test (Compose, port 3000) | 9/9 |
 | Smoke test (native backend + Vite, port 5173) | 9/9 |
 | `npm audit` | 0 vulnerabilities |
-| `cargo deny check` | not run locally (download of the binary was not permitted); runs in CI |
+| `cargo deny check` | not run locally (download of the binary was not permitted); passes in CI after replacing `chrono` (RUSTSEC-2026-0543, unmaintained) with `time` |
 
 Measured locally (not benchmarks): backend startup to ready 20–34 ms after the database
 is reachable; container images backend 123 MB, frontend 91.4 MB; idle memory backend
@@ -109,7 +109,7 @@ is reachable; container images backend 123 MB, frontend 91.4 MB; idle memory bac
 | P00-T36 | Accessibility checks pass | PASS | axe WCAG 2.2 AA: 0 violations on all routes and offline state |
 | P00-T37 | Required UI data states implemented | PASS | loading, empty, error, stale, degraded, offline, unverified (ui tests, showcase) |
 | P00-T38 | Visual screenshot candidates captured and inspected | PASS | 19 candidates captured and reviewed; two layout defects found and fixed |
-| P00-T39 | GitHub Actions CI passes | see final report | result of the run on the pushed commit |
+| P00-T39 | GitHub Actions CI passes | PASS | run 45871846138 on `871904a`: all 6 jobs green (first run failed: unmaintained `chrono` advisory and a faulty port check; both fixed) |
 | P00-T40 | Documentation complete and accurate | PASS | README, CLAUDE.md, architecture, development, design, phases |
 | P00-T41 | No sensitive files staged or committed | PASS | staged file review; gitleaks in CI |
 | P00-T42 | No future-phase functionality implemented | PASS | providers report state only; no ingestion/strategy/execution code |
