@@ -1,0 +1,6 @@
+# Normalise line endings in the repository; scripts that run inside Linux
+# containers must keep LF even on Windows checkouts.
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.png binary
+*.woff2 binary

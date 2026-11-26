@@ -1,0 +1,25 @@
+[package]
+name = "solprint-app"
+description = "SOLPRINT backend executable: composition root and process lifecycle."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "solprint"
+path = "src/main.rs"
+
+[dependencies]
+solprint-config.workspace = true
+solprint-storage.workspace = true
+solprint-api.workspace = true
+solprint-observability.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
+tokio-util.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+
+[lints]
+workspace = true

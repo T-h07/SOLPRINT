@@ -1,0 +1,238 @@
+# SOLPRINT continuous integration.
+#
+# Every third-party action is pinned to a full commit SHA (tag in the
+# trailing comment). Update pins deliberately, never to a moving tag.
+# Permissions are read-only; no job has access to deployment credentials and
+# no job deploys, tags or publishes anything.
+
+name: CI
+
+on:
+  push:
+    branches: ["main", "develop", "release", "feature/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: short
+  PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.65.1-noble
+
+jobs:
+  backend:
+    name: Backend · fmt, clippy, tests, contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        # Disposable database for integration tests only.
+        image: postgres:18.7-alpine3.24
+        env:
+          POSTGRES_USER: solprint_test
+          POSTGRES_PASSWORD: ci-disposable-only
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U solprint_test -d postgres"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain && rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: backend
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Tests (including PostgreSQL integration)
+        env:
+          SOLPRINT_TEST_DATABASE_URL: postgres://solprint_test:ci-disposable-only@127.0.0.1:5432/postgres
+        run: cargo test --workspace --all-features --locked -- --include-ignored
+      - name: API contract drift (generated TypeScript must be committed)
+        working-directory: .
+        run: |
+          if ! git diff --exit-code -- frontend/src/types/generated; then
+            echo "::error::Rust contracts changed: run 'cargo test -p solprint-api' and commit frontend/src/types/generated"
+            exit 1
+          fi
+          untracked=$(git ls-files --others --exclude-standard frontend/src/types/generated)
+          if [ -n "$untracked" ]; then
+            echo "::error::Uncommitted generated contract files: $untracked"
+            exit 1
+          fi
+      - name: Release build
+        run: cargo build --release --locked -p solprint-app
+
+  dependencies:
+    name: Supply chain · cargo-deny, npm audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: cargo-deny (advisories, licenses, bans, sources)
+        uses: EmbarkStudios/cargo-deny-action@81891abc19297b21343b15ef67dc61e4aea74fda # v2.1.4
+        with:
+          manifest-path: backend/Cargo.toml
+          rust-version: "1.99.1"
+          command: check
+          arguments: --all-features
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/.nvmrc
+      - name: npm audit (high and critical fail)
+        working-directory: frontend
+        run: npm audit --audit-level=high
+
+  secrets:
+    name: Secret scan · gitleaks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: gitleaks (full history, redacted output)
+        run: >-
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo" -w /repo
+          ghcr.io/gitleaks/gitleaks:v8.30.1
+          git --redact --verbose --exit-code 1 .
+
+  frontend:
+    name: Frontend · format, types, lint, unit, build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:ci
+      - run: npm run build
+      - name: Production bundle excludes the design-system showcase and fixtures
+        run: |
+          if grep -rlE "FIXTURE|DEMO DATA|Colour tokens" dist; then
+            echo "::error::showcase or fixture content found in the production bundle"
+            exit 1
+          fi
+
+  ui:
+    name: UI · accessibility, states, visual regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.1-noble
+      options: --ipc=host
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: npm ci --no-audit --no-fund
+      - name: Playwright ui + visual (mocked API, frozen clock)
+        env:
+          CI: "1"
+        run: npx playwright test --project=ui --project=visual
+      - name: Upload report and diffs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-ui-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 14
+
+  stack:
+    name: Stack · compose, images, smoke, e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Lint Dockerfiles (hadolint)
+        run: |
+          for f in infrastructure/docker/*.Dockerfile; do
+            docker run --rm -i hadolint/hadolint:v2.15.1 hadolint --failure-threshold warning - < "$f"
+          done
+      - name: Generate CI .env (random passwords, synthetic provider placeholders)
+        shell: pwsh
+        run: ./scripts/setup.ps1 -SkipInstall
+      - name: Compose configuration is valid
+        run: docker compose config --quiet
+      - name: Build images
+        env:
+          SOLPRINT_GIT_COMMIT: ${{ github.sha }}
+        run: docker compose build
+      - name: Start stack and wait for health
+        run: docker compose up -d --wait --wait-timeout 120
+      - name: Container hardening
+        run: |
+          for svc in backend frontend; do
+            id=$(docker compose ps -q "$svc")
+            ro=$(docker inspect -f '{{.HostConfig.ReadonlyRootfs}}' "$id")
+            caps=$(docker inspect -f '{{json .HostConfig.CapDrop}}' "$id")
+            user=$(docker inspect -f '{{.Config.User}}' "$id")
+            echo "$svc readonly=$ro capdrop=$caps user=$user"
+            [ "$ro" = "true" ] && echo "$caps" | grep -q ALL && [ -n "$user" ] && [ "$user" != "root" ] && [ "$user" != "0" ]
+          done
+          # The backend must not be published on the host.
+          # (`docker compose port` prints ":0" for unpublished ports, so inspect bindings.)
+          bindings=$(docker inspect -f '{{json .HostConfig.PortBindings}}' "$(docker compose ps -q backend)")
+          echo "backend port bindings=$bindings"
+          [ "$bindings" = "{}" ] || [ "$bindings" = "null" ]
+      - name: Smoke test
+        shell: pwsh
+        run: ./scripts/smoke-test.ps1
+      - name: End-to-end (real stack)
+        run: >-
+          docker run --rm --ipc=host --network solprint_default
+          -e CI=1 -e E2E_BASE_URL=http://frontend:8080
+          -v "$PWD/frontend:/work" -w /work "$PLAYWRIGHT_IMAGE"
+          bash -lc "npm ci --no-audit --no-fund && npx playwright test --project=e2e"
+      - name: Logs contain no configured secrets
+        run: |
+          docker compose logs --no-color > compose.log
+          fail=0
+          for key in POSTGRES_ADMIN_PASSWORD SOLPRINT_DB_PASSWORD; do
+            value=$(grep -E "^${key}=" .env | cut -d= -f2-)
+            if [ -n "$value" ] && grep -qF "$value" compose.log; then
+              echo "::error::$key value appears in container logs"; fail=1
+            fi
+          done
+          exit $fail
+      - name: Compose logs
+        if: failure()
+        run: docker compose logs --no-color --tail 200

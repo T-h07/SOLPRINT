@@ -1,0 +1,76 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "UNLICENSED"
+publish = false
+repository = "https://github.com/T-h07/SOLPRINT"
+
+[workspace.dependencies]
+# Internal crates
+solprint-core = { path = "crates/solprint-core" }
+solprint-config = { path = "crates/solprint-config" }
+solprint-storage = { path = "crates/solprint-storage" }
+solprint-api = { path = "crates/solprint-api" }
+solprint-observability = { path = "crates/solprint-observability" }
+
+# Runtime / HTTP
+tokio = { version = "1.54.1", default-features = false }
+tokio-util = { version = "0.7.20", default-features = false }
+axum = { version = "0.8.9", default-features = false }
+tower = { version = "0.5.3", default-features = false }
+tower-http = { version = "0.7.1", default-features = false }
+http-body-util = "0.1.5"
+
+# Data
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sqlx = { version = "0.9.1", default-features = false }
+uuid = { version = "1.29.3", default-features = false }
+time = { version = "0.3.55", default-features = false }
+rust_decimal = { version = "1.43.0", default-features = false }
+bs58 = { version = "0.5.1", default-features = false }
+url = "2.5.9"
+ts-rs = { version = "12.0.1", default-features = false, features = ["serde-compat"] }
+
+# Errors / config / observability
+thiserror = "2.0.21"
+anyhow = "1.0.105"
+dotenvy = "0.15.7"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", default-features = false }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+print_stdout = "warn"
+float_arithmetic = "warn"
+cast_possible_truncation = "warn"
+cast_sign_loss = "warn"
+cast_possible_wrap = "warn"
+
+[profile.dev]
+# Keep debug builds fast to link; dependencies get light optimisation so
+# integration tests against PostgreSQL are not dominated by debug overhead.
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 1
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
