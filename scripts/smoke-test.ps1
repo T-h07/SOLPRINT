@@ -40,7 +40,7 @@ Check 'status: provider health is measured or UNKNOWN, never assumed' {
     @($s.providers).Count -eq 4 -and @($s.providers | Where-Object { $allowed -notcontains $_.state }).Count -eq 0
 }
 Check 'gateway status: read-only, no execution capability' {
-    $g = ((Get-Http '/api/v1/gateway/status').Content | ConvertFrom-Json).data
+    $g = (Get-Http '/api/v1/gateway/status').Content | ConvertFrom-Json
     $g.execution_capability -eq 'NONE'
 }
 Check 'gateway endpoints answer from local state' {
@@ -50,9 +50,9 @@ Check 'gateway endpoints answer from local state' {
     $true
 }
 Check 'monitoring reads create no provider requests' {
-    $before = ((Get-Http '/api/v1/gateway/providers').Content | ConvertFrom-Json).data.providers | ForEach-Object { $_.traffic.requests }
+    $before = ((Get-Http '/api/v1/gateway/providers').Content | ConvertFrom-Json).providers | ForEach-Object { $_.traffic.requests }
     1..5 | ForEach-Object { Get-Http '/api/v1/gateway/status' | Out-Null; Get-Http '/api/v1/system/status' | Out-Null }
-    $after = ((Get-Http '/api/v1/gateway/providers').Content | ConvertFrom-Json).data.providers | ForEach-Object { $_.traffic.requests }
+    $after = ((Get-Http '/api/v1/gateway/providers').Content | ConvertFrom-Json).providers | ForEach-Object { $_.traffic.requests }
     ($before -join ',') -eq ($after -join ',')
 }
 Check 'version endpoint' { ((Get-Http '/api/v1/system/version').Content | ConvertFrom-Json).name -eq 'solprint' }
