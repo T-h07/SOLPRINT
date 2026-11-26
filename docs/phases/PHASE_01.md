@@ -41,11 +41,11 @@ document, with the exact commit they apply to.
   loopback mocks built from the documented contracts. The bounded live check
   (`gateway-diagnostics.ps1 -Live`) needs the owner's explicit opt-in and has not been
   run (P01-T54).
-* **Visual baselines.** The Gateway pages have no approved baselines yet, and the
-  Overview/System baselines change because provider health now reads "Not measured".
-  Candidate baselines must be generated with
-  `./scripts/playwright.ps1 -Project visual -UpdateSnapshots`, reviewed and approved by
-  the owner. Until then the visual check fails, and so does the full gate.
+* **Visual baselines are candidates.** The 9 Gateway baselines and the 12 updated
+  Overview/System baselines (provider health now reads "Not measured") were generated
+  with `./scripts/playwright.ps1 -Project visual -UpdateSnapshots` on 2026-11-26 at the
+  owner's request and inspected. They remain candidates until the owner approves them
+  (P01-T70). `verify.ps1` has not yet been re-run against them (P01-T78).
 * **cargo-deny** is not installed on the development machine, so `verify.ps1` reports
   the Rust advisory check as BLOCKED. Install with `cargo install cargo-deny --locked`.
 * Recovery covers `logs` subscriptions only; other subscription kinds report
@@ -168,7 +168,7 @@ no criterion here claims verification against a live provider (see P01-T54).
 | P01-T67 | Keyboard and accessibility checks pass | PASS | axe WCAG 2.2 AA on `/gateway` in healthy, idle, pressure, offline, loading; keyboard tests |
 | P01-T68 | UI updates do not cause significant layout shifts | PASS | measured CLS (Playwright, PerformanceObserver): polling updates 0.0000 at 1440 and 390; initial load 0.053 (1440) and 0.0035 (390) after sizing the budget skeleton |
 | P01-T69 | Screenshots are captured and inspected | PASS | review captures inspected; findings fixed (wrapping unit, clipped column, truncated values, layout shift) |
-| P01-T70 | Owner approves the visual implementation | PENDING OWNER REVIEW | — |
+| P01-T70 | Owner approves the visual implementation | PENDING OWNER REVIEW | candidate baselines committed for review; not yet approved |
 
 ### Security, delivery and scope
 
@@ -218,6 +218,13 @@ baseline yet (1920, 1440, 1280, 1024, 390; idle and pressure at 1440 and 390), a
 Overview/System screenshots differ by 1–2 % of pixels because provider health now reads
 "Not measured" and GATEWAY is listed as read-only. They need owner review and
 `./scripts/playwright.ps1 -Project visual -UpdateSnapshots` as candidate baselines.
+
+After this run, the candidate baselines were generated (28 visual tests pass against
+them). Inspection found one defect: in the pressure state at 1440 px the Providers
+table overflowed its panel because an open circuit's retry time widened the Circuit
+column. The retry time now sits on its own line. Playwright ui (42) and visual (28),
+Prettier, TypeScript, ESLint and Vitest (34) pass after the fix. The full gate must be
+re-run on the new commit before T78 can change.
 
 An earlier run on `f80cccf` failed the quality gate (Compose validation needed a `.env`
 in the clean checkout) and the smoke test (gateway responses read with a wrong
