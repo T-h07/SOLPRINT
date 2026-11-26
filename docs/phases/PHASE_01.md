@@ -45,7 +45,7 @@ document, with the exact commit they apply to.
   Overview/System baselines (provider health now reads "Not measured") were generated
   with `./scripts/playwright.ps1 -Project visual -UpdateSnapshots` on 2026-11-26 at the
   owner's request and inspected. They remain candidates until the owner approves them
-  (P01-T70). `verify.ps1` has not yet been re-run against them (P01-T78).
+  (P01-T70). `verify.ps1` on `4cc1276` passes the visual check against them.
 * **cargo-deny** is not installed on the development machine, so `verify.ps1` reports
   the Rust advisory check as BLOCKED. Install with `cargo install cargo-deny --locked`.
 * Recovery covers `logs` subscriptions only; other subscription kinds report
@@ -80,7 +80,7 @@ no criterion here claims verification against a live provider (see P01-T54).
 | ID | Criterion | Status | Evidence |
 |---|---|---|---|
 | P01-T01 | Correct feature branch is active | PASS | `git branch --show-current` → `feature/01-gateway` |
-| P01-T02 | Existing Phase 00 functionality remains operational | PASS | Phase 00 config, API, storage, UI and e2e tests pass in `verify.ps1` on `72537c7`; Phase 00 visual baselines differ only by the intended provider-health text (see T78) |
+| P01-T02 | Existing Phase 00 functionality remains operational | PASS | Phase 00 config, API, storage, UI, visual (candidate baselines) and e2e tests pass in `verify.ps1` on `4cc1276` |
 | P01-T03 | Official provider capabilities are documented | PASS | [PROVIDER_CAPABILITIES.md](../architecture/PROVIDER_CAPABILITIES.md), sources dated 2026-11-26 |
 | P01-T04 | GATEWAY is the centralized provider communication layer | PASS | only `solprint-gateway` depends on `reqwest`/`tokio-tungstenite`; destination allow-list (`transport::destination_policy`) |
 | P01-T05 | Provider DTOs are isolated from domain models | PASS | provider JSON decoded in GATEWAY modules into `models.rs`; consumers use `traits.rs` |
@@ -181,11 +181,42 @@ no criterion here claims verification against a live provider (see P01-T54).
 | P01-T75 | No paid features are activated | PASS | no overage/top-up configuration exists; paid endpoints not implemented; defaults below free limits |
 | P01-T76 | Application operates safely without provider credentials | PASS | `missing_helius_key_disables_helius`; API tests and the verification stack run with no keys |
 | P01-T77 | Backend and frontend automated tests pass | PASS | on `72537c7`: Rust 203 (incl. PostgreSQL), Vitest 34, Playwright ui 42, e2e 5 — 0 failures |
-| P01-T78 | Complete local verification passes on the exact candidate revision | FAIL | `verify.ps1` on `72537c7`: 16 PASS, visual FAIL (21 baselines missing or changed, awaiting owner approval), cargo deny BLOCKED (not installed). See log |
+| P01-T78 | Complete local verification passes on the exact candidate revision | BLOCKED | `verify.ps1` on `4cc1276`: 17 PASS, cargo deny BLOCKED (not installed on the development machine); exit 1. Visual passes against candidate baselines that still need owner approval (T70). See log |
 | P01-T79 | Documentation is complete and accurate | PASS | documents listed above, written against the implemented code |
 | P01-T80 | No future-phase trading functionality is implemented | PASS | no signals, sizing, positions, execution or wallet code; scope review |
 
 ## Verification log
+
+### 2026-11-26 — `verify.ps1` (full mode) on `4cc12767e9ed0053e7d14e8c196a10b5b5edcafe`
+
+Toolchain: rustc 1.99.1, Node v24.19.0, Docker 29.9.3; Windows 11. Duration 736 s.
+Exit code 1 (`VERIFY FAILED: 1 check(s) FAIL or BLOCKED`). The run removed its
+worktree and Compose project.
+
+| Check | Result | Tests |
+|---|---|---|
+| Isolated checkout | PASS | |
+| Secret scan: candidate revision | PASS | |
+| Secret scan: staged changes and full history | PASS | |
+| Dockerfile lint (hadolint) | PASS | |
+| Locked frontend install (npm ci) | PASS | |
+| Quality gate (check.ps1) | PASS | Rust 194, Vitest 34 |
+| Production bundle excludes fixtures and showcase | PASS | |
+| PostgreSQL integration tests (test.ps1) | PASS | Rust 203 |
+| Rust advisories and licences (cargo deny) | BLOCKED | cargo-deny not installed |
+| npm advisories (high and critical) | PASS | |
+| Playwright ui | PASS | 42 |
+| Playwright visual | PASS | 28, against candidate baselines |
+| Synthetic .env and isolated Compose config | PASS | |
+| Clean image builds and stack startup | PASS | |
+| Container hardening | PASS | |
+| Smoke test | PASS | |
+| End-to-end (real stack) | PASS | 5 |
+| Container logs contain no configured secret | PASS | |
+
+The only open check is cargo deny. The gate passes only once it runs and the owner has
+approved the visual baselines. This document was updated after the run; the change is
+documentation only.
 
 ### 2026-11-26 — `verify.ps1` (full mode) on `72537c73536bbb0f47b318a2bd7f584a9039d0f9`
 
