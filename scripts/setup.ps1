@@ -105,7 +105,7 @@ foreach ($g in $generated) { Write-Note "generated random value for $g" }
 $final = Read-DotEnv $envPath
 if ($final['TRADING_MODE'] -and $final['TRADING_MODE'] -ne 'paper') { Write-Warn2 'TRADING_MODE is not "paper": the backend will refuse to start (Phase 00 is non-executing).' }
 if ($final['LIVE_TRADING_ENABLED'] -and $final['LIVE_TRADING_ENABLED'] -ne 'false') { Write-Warn2 'LIVE_TRADING_ENABLED is not "false": the backend will refuse to start.' }
-if ($final['SOLANA_FALLBACK_RPC_URL'] -and $final['SOLANA_FALLBACK_RPC_URL'] -notlike 'https://*') { Write-Warn2 'SOLANA_FALLBACK_RPC_URL must be an https:// URL (recommended: https://api.mainnet-beta.solana.com).' }
+if ($final['SOLANA_FALLBACK_RPC_URL'] -and $final['SOLANA_FALLBACK_RPC_URL'] -notlike 'https://*') { Write-Warn2 'SOLANA_FALLBACK_RPC_URL must be an https:// URL (default: https://api.mainnet.solana.com).' }
 
 if (-not $SkipInstall) {
     Write-Step 'Frontend dependencies (npm ci)'

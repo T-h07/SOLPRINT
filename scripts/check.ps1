@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-  Run the standard quality gate locally (the same checks as CI, minus the
-  steps that need containers). Fails on the first failing check.
+  Run the standard quality gate in the current checkout (the container-free
+  part of scripts/verify.ps1). Fails on the first failing check.
 
 .PARAMETER WithDatabase
   Also run PostgreSQL integration tests via scripts/test.ps1.
