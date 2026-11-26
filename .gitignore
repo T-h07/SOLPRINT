@@ -1,0 +1,26 @@
+﻿# Rust
+/target/
+
+# Frontend
+node_modules/
+dist/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+wallets/
+keypairs/
+
+# Development
+.idea/
+.vscode/
+.claude/
+*.log
+
+# Operating system
+.DS_Store
+Thumbs.db
