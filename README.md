@@ -19,6 +19,12 @@ wallet analytics and automated trading strategies.
 
 Rust, Tokio, Axum, React, TypeScript, PostgreSQL and Docker.
 
+## Design
+
+The TERMINAL interface follows the [UI/UX Design Specification](docs/design/UI_UX_SPEC.md).
+UI quality is a cross-cutting roadmap requirement — see
+[Roadmap UI Integration](docs/design/ROADMAP_UI_INTEGRATION.md).
+
 ## Development Status
 
 SOLPRINT is currently in early development.
