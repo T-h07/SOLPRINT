@@ -45,9 +45,9 @@ document, with the exact commit they apply to.
   Overview/System baselines (provider health now reads "Not measured") were generated
   with `./scripts/playwright.ps1 -Project visual -UpdateSnapshots` on 2026-11-26 at the
   owner's request and inspected. They remain candidates until the owner approves them
-  (P01-T70). `verify.ps1` on `4cc1276` passes the visual check against them.
-* **cargo-deny** is not installed on the development machine, so `verify.ps1` reports
-  the Rust advisory check as BLOCKED. Install with `cargo install cargo-deny --locked`.
+  (P01-T70). `verify.ps1` on `696438e` passes the visual check against them.
+* The advisory checks (cargo deny, npm audit) need network access to fetch their
+  databases; without it they fail rather than pass silently.
 * Recovery covers `logs` subscriptions only; other subscription kinds report
   `CONTINUITY_UNKNOWN` after a reconnect ([STREAM_RECOVERY.md](../architecture/STREAM_RECOVERY.md)).
 * Local credit accounting is an estimate of Helius's own metering; the provider's
@@ -63,7 +63,6 @@ document, with the exact commit they apply to.
 2. Review the Gateway workspace and approve or reject the candidate visual baselines
    (P01-T70).
 3. Optionally authorise the bounded live check: `./scripts/gateway-diagnostics.ps1 -Live`.
-4. Install `cargo-deny` so the advisory check can run.
 5. If the remote repository still has a required "CI" status check or branch protection
    referring to the removed workflow, remove it in the repository settings (not changed
    by this phase).
@@ -80,7 +79,7 @@ no criterion here claims verification against a live provider (see P01-T54).
 | ID | Criterion | Status | Evidence |
 |---|---|---|---|
 | P01-T01 | Correct feature branch is active | PASS | `git branch --show-current` → `feature/01-gateway` |
-| P01-T02 | Existing Phase 00 functionality remains operational | PASS | Phase 00 config, API, storage, UI, visual (candidate baselines) and e2e tests pass in `verify.ps1` on `4cc1276` |
+| P01-T02 | Existing Phase 00 functionality remains operational | PASS | Phase 00 config, API, storage, UI, visual (candidate baselines) and e2e tests pass in `verify.ps1` on `696438e` |
 | P01-T03 | Official provider capabilities are documented | PASS | [PROVIDER_CAPABILITIES.md](../architecture/PROVIDER_CAPABILITIES.md), sources dated 2026-11-26 |
 | P01-T04 | GATEWAY is the centralized provider communication layer | PASS | only `solprint-gateway` depends on `reqwest`/`tokio-tungstenite`; destination allow-list (`transport::destination_policy`) |
 | P01-T05 | Provider DTOs are isolated from domain models | PASS | provider JSON decoded in GATEWAY modules into `models.rs`; consumers use `traits.rs` |
@@ -181,11 +180,23 @@ no criterion here claims verification against a live provider (see P01-T54).
 | P01-T75 | No paid features are activated | PASS | no overage/top-up configuration exists; paid endpoints not implemented; defaults below free limits |
 | P01-T76 | Application operates safely without provider credentials | PASS | `missing_helius_key_disables_helius`; API tests and the verification stack run with no keys |
 | P01-T77 | Backend and frontend automated tests pass | PASS | on `72537c7`: Rust 203 (incl. PostgreSQL), Vitest 34, Playwright ui 42, e2e 5 — 0 failures |
-| P01-T78 | Complete local verification passes on the exact candidate revision | BLOCKED | `verify.ps1` on `4cc1276`: 17 PASS, cargo deny BLOCKED (not installed on the development machine); exit 1. Visual passes against candidate baselines that still need owner approval (T70). See log |
+| P01-T78 | Complete local verification passes on the exact candidate revision | PASS | `verify.ps1` (full) on `696438e`: 18/18 PASS, `VERIFY PASSED`. Visual compares against candidate baselines that still need owner approval (T70); if the owner rejects them, the gate must be re-run. See log |
 | P01-T79 | Documentation is complete and accurate | PASS | documents listed above, written against the implemented code |
 | P01-T80 | No future-phase trading functionality is implemented | PASS | no signals, sizing, positions, execution or wallet code; scope review |
 
 ## Verification log
+
+### 2026-11-26 — `verify.ps1` (full mode) on `696438e7dcd453aaae59b2681e9cfeff9cecc7ef`
+
+Toolchain: rustc 1.99.1, cargo-deny 0.22.1, Node v24.19.0, Docker 29.9.3; Windows 11.
+Duration 664 s. Exit code 0, `VERIFY PASSED (full gate)`. All 18 checks PASS: Rust 194
++ 203 (PostgreSQL), Vitest 34, Playwright ui 42, visual 28 (candidate baselines),
+e2e 5; cargo deny (advisories, bans, licences, sources) and npm audit clean.
+
+An earlier run on the same commit (797 s) failed cargo deny and npm audit only because
+DNS resolution of `github.com` and `registry.npmjs.org` failed during the run; both
+checks passed when re-run directly once the network was back, and the full re-run
+above passed. Commits after `696438e` change this document only.
 
 ### 2026-11-26 — `verify.ps1` (full mode) on `4cc12767e9ed0053e7d14e8c196a10b5b5edcafe`
 
