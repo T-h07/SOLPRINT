@@ -284,7 +284,7 @@ async fn readiness_tracks_real_database_availability() {
 
     let (_, _, body) = call(state.clone(), get("/api/v1/system/status")).await;
     assert_eq!(body["database"]["status"], "AVAILABLE");
-    assert_eq!(body["database"]["migrations_applied"], 1);
+    assert_eq!(body["database"]["migrations_applied"], 2);
 
     // Outage: readiness must flip to 503 while liveness stays 200.
     tdb.drop_database().await;
