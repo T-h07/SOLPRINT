@@ -3,6 +3,12 @@
 Branch: `feature/00-foundation` (merged into `develop` as `3bc46cc`, branch deleted).
 Status: **accepted** — all criteria PASS, owner approval recorded 2026-11-26. No release or tag.
 
+> **Policy change in Phase 01.** SOLPRINT no longer uses hosted CI/CD. The GitHub Actions
+> workflow described below was removed on `feature/01-gateway`; its checks now run
+> locally through `scripts/verify.ps1` on the exact candidate commit. The CI results
+> recorded in this document (for example P00-T39) are kept unchanged as historical
+> evidence of Phase 00.
+
 ## Scope
 
 In scope: Rust workspace and shared domain types, typed configuration and secret

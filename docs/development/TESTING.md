@@ -1,7 +1,18 @@
 # Testing
 
+**The gate is `./scripts/verify.ps1`.** It verifies the exact commit in a clean,
+isolated Git worktree (no `.env`, no untracked files), runs everything below plus secret
+scanning, Dockerfile lint, dependency advisories, clean Docker image builds and an
+isolated Compose stack (own project name, image tags, ports and volumes; synthetic
+`.env`; smoke test; e2e; container hardening; log secret check), then removes only what
+it created. Each check is reported as PASS / FAIL / BLOCKED / NOT RUN with duration and
+test counts; logs go to `.solprint/verify/<sha12>/`. Any FAIL or BLOCKED exits non-zero.
+`-Quick` reuses a build cache and skips Playwright and the stack (reported NOT RUN; never
+a full pass). SOLPRINT uses no hosted CI/CD.
+
 | Suite | Command | Needs |
 |---|---|---|
+| **Full gate (exact commit, clean checkout)** | `./scripts/verify.ps1` | Docker |
 | Rust unit + HTTP | `cd backend; cargo test --workspace --all-features` | — |
 | Rust + PostgreSQL integration | `./scripts/test.ps1` | Docker |
 | Frontend unit (Vitest, jsdom) | `cd frontend; npm test` / `npm run test:ci` | — |
@@ -9,7 +20,9 @@
 | Visual regression | `./scripts/playwright.ps1 -Project visual` | Docker |
 | End-to-end (real stack) | `./scripts/dev.ps1 -Mode docker; ./scripts/playwright.ps1 -Project e2e` | Docker |
 | HTTP smoke | `./scripts/smoke-test.ps1` | running stack |
-| Everything CI runs without containers | `./scripts/check.ps1` | — |
+| Container-free checks on the working tree | `./scripts/check.ps1` | — |
+| GATEWAY overhead benchmarks | `cd backend; cargo bench -p solprint-gateway` | — |
+| GATEWAY diagnostics (offline / live opt-in) | `./scripts/gateway-diagnostics.ps1 [-Live]` | `.env`; `-Live` contacts providers |
 
 ## Database tests never touch your data
 
@@ -31,7 +44,35 @@ database. Do not point `SOLPRINT_TEST_DATABASE_URL` at the development database.
 * `solprint-storage`: migrations, idempotent re-run, instance registration and
   persistence, health probe (database tests).
 * Contract export: `cargo test -p solprint-api` regenerates
-  `frontend/src/types/generated`; CI fails on drift.
+  `frontend/src/types/generated`; `check.ps1` fails on drift.
+
+## GATEWAY coverage (Phase 01)
+
+No test contacts a real provider. Providers are loopback mock servers (axum for HTTP,
+`tokio-tungstenite` for WebSockets) driven by per-test scripts.
+
+* Unit (`src/**`): budget thresholds and admission, cycle rollover, stream metering,
+  rate limiter (burst, spacing, deadline refusal, upstream block), scheduler (priority,
+  bounded queues, global limit, no leaked slots), breaker (threshold, capped backoff,
+  probes), cache freshness and negative entries, coalescing (shared errors, leader
+  hand-over), retry classification, health derivation, JSON-RPC id/error handling,
+  exact number parsing, provider DTO normalization, destination policy and redaction,
+  subscription validation.
+* `tests/gateway_mock.rs`: caching and provenance, RPC errors inside HTTP 200, id
+  mismatch, not-found, oversized payloads, 429 → fallback only when allowed, circuit
+  opening, retries, budget shedding and persistence across restarts, unloaded ledger,
+  coalescing, deadlines, cancellation, getBlock off, missing key, bounded pagination,
+  getMultipleAccounts and DEX batch limits, versioned transactions, Jupiter quote-only
+  (no taker; responses with a transaction refused), shared Jupiter rate group,
+  snapshots and stored reads never contacting providers, flush failure and recovery.
+* `tests/gateway_stream.rs`: subscribe/ack, notifications and byte metering, failed
+  subscriptions, reconnect with resubscription and generations, heartbeat detection of a
+  silent connection, logs gap recovery (oldest first, dedup, checkpoints), incomplete
+  recovery reported as a gap, signature subscriptions, backpressure, limits, shutdown.
+* `tests/gateway_db.rs` (PostgreSQL, via `test.ps1`): ledger survives restarts, additive
+  upserts, usage/metric accumulation and pruning, checkpoint constraints.
+* `solprint-api/tests/http.rs`: every `/api/v1/gateway/*` endpoint answers from local
+  state, malformed queries are rejected, no secret appears in any response.
 
 ## Frontend coverage
 
@@ -40,18 +81,20 @@ database. Do not point `SOLPRINT_TEST_DATABASE_URL` at the development database.
   classification (unreachable, proxy 502, structured error, contract mismatch, malformed
   JSON, timeout), generated-contract barrel completeness, fixture isolation, shell
   rendering (PAPER, MODE UNVERIFIED, navigation, skip link, single h1, not-found).
-* UI (Playwright, mocked API): healthy / offline / database-down / loading states,
+* UI (Playwright, mocked API): healthy / offline / database-down / loading states, the
+  Gateway workspace (active, idle, pressure, database-down, offline, loading),
   keyboard navigation and visible focus, axe WCAG 2.2 AA on every route and the offline
   state, no horizontal overflow and mode + connection always visible at every standard
   viewport.
 
 ## Visual regression
 
-* Viewports: 1920×1080, 1440×900, 1280×800, 1024×768, 390×844. Pages: Overview, System,
-  Design system (full page), plus offline and database-down states at 1440 and 390.
+* Viewports: 1920×1080, 1440×900, 1280×800, 1024×768, 390×844. Pages: Overview, Gateway
+  (active, idle, pressure), System, Design system (full page), plus offline and
+  database-down states at 1440 and 390.
 * The API is mocked and the clock frozen at `2026-11-26T12:00:00Z`, so captures are
   deterministic. They run only inside `mcr.microsoft.com/playwright:v1.65.1-noble`
-  (locally via `scripts/playwright.ps1`, and in CI) so fonts render identically.
+  (via `scripts/playwright.ps1`, also from `verify.ps1`) so fonts render identically.
 * Baselines: `frontend/tests/visual/__screenshots__/`. **Baselines are candidates until
   the owner approves them.** To update after an intentional change:
 

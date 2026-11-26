@@ -106,7 +106,7 @@ durations become 0 under `prefers-reduced-motion`.
 | `Button`, `IconButton` | primary, secondary, ghost, destructive; sm 28 / md 32 / lg 40; hover, pressed, selected (`aria-pressed`), disabled, focus-visible |
 | `Field`, `Input`, `Select` | label, hint, error (icon + text, `aria-invalid`, `aria-describedby`), disabled |
 | `StatusIndicator` | positive, negative, warning, info, neutral — glyph + label + optional detail |
-| `Panel`, `Separator`, `DefinitionList` | flush / padded |
+| `Panel`, `Separator`, `DefinitionList` | flush / padded; a `DefinitionList` item with `wrap` breaks long values across lines instead of truncating (used where a value must never be cut off, e.g. cycle dates and denied counts at narrow widths) |
 | `Table` (`THead`, `TBody`, `Tr`, `Th`, `Td`) | compact / standard density, numeric right alignment |
 | `DataState`, `Skeleton`, `FixtureFrame` | loading, empty, error (with retry), stale, partial; fixtures framed and labelled `FIXTURE` |
 | `MetricCell`, `Timestamp`, `DataAge` | loading skeleton; UTC timestamp; age with stale styling |
@@ -116,6 +116,26 @@ durations become 0 under `prefers-reduced-motion`.
 Shell components (`components/shell`): `AppShell`, `ModeIndicator` (`PAPER MODE`,
 `LIVE TRADING`, `MODE UNVERIFIED`, loading), `ConnectionIndicator` (connecting,
 connected, degraded, stale, offline), `Wordmark`.
+
+## Gateway workspace (`/gateway`, Phase 01)
+
+`features/gateway/panels.tsx`, laid out by `pages/GatewayPage.tsx` on a three-column grid
+at ≥ 1200 px (single column below):
+
+| Pane | Content | Notes |
+|---|---|---|
+| Helius credit budget (2 cols) | state, credits used of the limit, remaining, admitted priorities; `BudgetMeter`; cycle, linear projection, stream credits/bytes, denied requests per priority, ledger persistence | `BudgetMeter` is `role="meter"` with `aria-valuetext`; threshold ticks (conservation, critical, reserve) are repeated as a text legend, so nothing depends on the bar alone |
+| Gateway | enabled, execution capability (`None · read-only access layer`), streams, queue, cache, persistence, uptime | |
+| Providers (3 cols) | health with recent-failure ratio, circuit, in flight, queued, requests, errors, 429s, p50/p95/p99, last success | latency figures are histogram bucket bounds and say so |
+| Operations (3 cols) | per-operation ok, errors, cache hits, coalesced, retries, percentiles, last error | |
+| Usage · last 24 h | stored hourly requests, credits, bytes per provider; process total at ≥ 1440 px | partial state when stored history is unavailable |
+| Streams | connection state and generation, last message, bytes and credits, continuity totals, per-subscription continuity | |
+| Response cache | per-namespace hits, misses, hit rate, stale serves | |
+
+Labels (`features/gateway/labels.ts`): unmeasured health is shown as **Not measured**,
+never as healthy or zero; budget, circuit, stream and continuity states are text plus
+glyph. Gateway data polls every 5 s (usage every 60 s) and is marked stale when it
+stops updating.
 
 ## Data states (mandatory for every data component)
 

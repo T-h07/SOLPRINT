@@ -26,14 +26,56 @@ printed. Any problem → exit code 2.
 | `LOG_FORMAT` | `pretty` in development, `json` otherwise | `pretty` \| `json` |
 | `TRADING_MODE` | `paper` | **only `paper`**; `live` is rejected (`LIVE_TRADING_NOT_PERMITTED`) |
 | `LIVE_TRADING_ENABLED` | `false` | **only `false`**; `true` is rejected |
-| `HELIUS_API_KEY` | empty | optional, secret; reported only as configured/absent |
-| `JUPITER_API_KEY` | empty | optional, secret |
-| `DEXSCREENER_BASE_URL` | `https://api.dexscreener.com` | `https://` only |
-| `SOLANA_FALLBACK_RPC_URL` | `https://api.mainnet-beta.solana.com` | `https://` only; secret (may embed a key) |
+| `HELIUS_API_KEY` | empty | optional, secret; reported only as configured/absent. Without it Helius RPC and streams are disabled |
+| `JUPITER_API_KEY` | empty | optional, secret. Without it Jupiter runs on the keyless tier (rate capped at 30/min) |
 | `SOLPRINT_GIT_COMMIT` | — | build-time; accepted only as 7–40 hex characters |
 
 Exact ranges are enforced in `backend/crates/solprint-config/src/lib.rs`; if this table
 and the code disagree, the code is authoritative and this table is a bug.
+
+## GATEWAY (Phase 01)
+
+Defaults are deliberately below the providers' documented limits (see
+[PROVIDER_CAPABILITIES.md](../architecture/PROVIDER_CAPABILITIES.md)). Do not raise a
+limit above what the provider documents, and do not raise `HELIUS_MONTHLY_CREDITS` above
+what the plan includes: GATEWAY never enables paid usage.
+
+| Key | Default | Rules |
+|---|---|---|
+| `GATEWAY_ENABLED` | `true` | `false` turns every provider off (the API still reports state) |
+| `GATEWAY_DEFAULT_DEADLINE_MS` | `10000` | 100–60 000; covers queueing, rate-limit waits and retries |
+| `GATEWAY_CONNECT_TIMEOUT_MS` | `5000` | 100–30 000 |
+| `GATEWAY_GLOBAL_QUEUE_LIMIT` | `512` | 1–4 096; must be ≥ `GATEWAY_PROVIDER_QUEUE_LIMIT` |
+| `GATEWAY_PROVIDER_QUEUE_LIMIT` | `128` | 1–1 024 |
+| `GATEWAY_MAX_RESPONSE_BYTES` | `8388608` | 64 KiB–64 MiB |
+| `GATEWAY_CACHE_MAX_ENTRIES` | `10000` | 0–1 000 000; `0` disables the cache |
+| `GATEWAY_FLUSH_INTERVAL_SECS` | `30` | 5–600; usage/metrics persistence interval |
+| `GATEWAY_USAGE_RETENTION_DAYS` | `90` | 1–3 650 |
+| `GATEWAY_METRICS_RETENTION_DAYS` | `14` | 1–365 |
+| `GATEWAY_STREAMS_ENABLED` | `false` | Helius WebSocket streams (need `HELIUS_API_KEY`) |
+| `HELIUS_RPC_URL` | `https://mainnet.helius-rpc.com` | `https://`; no query or user info (the key comes from `HELIUS_API_KEY`) |
+| `HELIUS_WS_URL` | `wss://mainnet.helius-rpc.com` | `wss://`; no query or user info |
+| `HELIUS_MONTHLY_CREDITS` | `1000000` | 0–1 000 000 000; the plan's credits per cycle |
+| `HELIUS_RESERVE_PERCENT` | `20` | 0–90; share reserved for P0–P1 |
+| `HELIUS_BILLING_CYCLE_START_DAY` | `1` | 1–28 (UTC) |
+| `HELIUS_RPC_RPS` | `5` | 1–10 |
+| `HELIUS_MAX_IN_FLIGHT` | `4` | 1–16 |
+| `HELIUS_WS_MAX_SUBSCRIPTIONS` | `100` | 1–1 000 |
+| `HELIUS_GET_BLOCK_ENABLED` | `false` | getBlock is large and rarely needed |
+| `JUPITER_BASE_URL` | `https://api.jup.ag` | `https://` only |
+| `JUPITER_RPM` | `50` | 1–60, and at most 30 without `JUPITER_API_KEY` |
+| `JUPITER_MAX_IN_FLIGHT` | `2` | 1–4 |
+| `JUPITER_QUOTE_ENABLED` | `true` | quote-only Swap V2 `/order` (no taker, never executes) |
+| `DEXSCREENER_BASE_URL` | `https://api.dexscreener.com` | `https://` only |
+| `DEXSCREENER_RPM` | `240` | 1–300 |
+| `DEXSCREENER_MAX_IN_FLIGHT` | `4` | 1–8 |
+| `DEXSCREENER_DISCOVERY_ENABLED` | `false` | token profiles and boosts endpoints |
+| `SOLANA_FALLBACK_RPC_URL` | `https://api.mainnet.solana.com` | `https://` only; secret (may embed a key) |
+| `SOLANA_FALLBACK_ENABLED` | `true` | public RPC as fallback only, when the caller allows it |
+| `SOLANA_FALLBACK_RPS` | `2` | 1–4 |
+
+In Compose these keys are passed through with an empty default, which means "use the
+backend default".
 
 ## Compose / scripts
 
