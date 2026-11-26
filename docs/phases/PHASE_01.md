@@ -80,7 +80,7 @@ no criterion here claims verification against a live provider (see P01-T54).
 | ID | Criterion | Status | Evidence |
 |---|---|---|---|
 | P01-T01 | Correct feature branch is active | PASS | `git branch --show-current` → `feature/01-gateway` |
-| P01-T02 | Existing Phase 00 functionality remains operational | see log | Phase 00 tests (config, API, storage, UI, e2e) in the gate |
+| P01-T02 | Existing Phase 00 functionality remains operational | PASS | Phase 00 config, API, storage, UI and e2e tests pass in `verify.ps1` on `72537c7`; Phase 00 visual baselines differ only by the intended provider-health text (see T78) |
 | P01-T03 | Official provider capabilities are documented | PASS | [PROVIDER_CAPABILITIES.md](../architecture/PROVIDER_CAPABILITIES.md), sources dated 2026-11-26 |
 | P01-T04 | GATEWAY is the centralized provider communication layer | PASS | only `solprint-gateway` depends on `reqwest`/`tokio-tungstenite`; destination allow-list (`transport::destination_policy`) |
 | P01-T05 | Provider DTOs are isolated from domain models | PASS | provider JSON decoded in GATEWAY modules into `models.rs`; consumers use `traits.rs` |
@@ -126,7 +126,7 @@ no criterion here claims verification against a live provider (see P01-T54).
 | P01-T35 | Streaming consumption is measured | PASS | `stream_bytes_are_metered_with_a_running_ceiling`, byte metering in the slot stream test |
 | P01-T36 | Protected credit reserves are enforced | PASS | `admission_sheds_low_priorities_first` |
 | P01-T37 | Concurrent requests cannot exceed local budget admission | PASS | atomic reservation (`budget::try_reserve`); `budget_sheds_low_priorities_first_and_persists_across_restarts` |
-| P01-T38 | Usage accounting survives restart | see log | `credit_ledger_survives_restarts` (PostgreSQL) and the memory-store restart test |
+| P01-T38 | Usage accounting survives restart | PASS | `credit_ledger_survives_restarts` (PostgreSQL) and the memory-store restart test |
 | P01-T39 | Budget exhaustion stops applicable traffic | PASS | `budget_sheds_low_priorities_first_and_persists_across_restarts`, `thresholds_follow_the_documented_table` |
 | P01-T40 | Adaptive budget conservation works | PASS | same; `unloaded_ledger_admits_only_high_priorities` |
 | P01-T41 | Cache TTL and eviction operate correctly | PASS | `freshness_moves_from_fresh_to_stale_to_expired`, `stores_typed_and_negative_entries`, `zero_capacity_disables_the_cache` |
@@ -145,7 +145,7 @@ no criterion here claims verification against a live provider (see P01-T54).
 | P01-T49 | Provider health accurately represents degradation | PASS | `health_is_unknown_until_traffic_and_tracks_outcomes`, `budget_exhaustion_and_rate_limits_are_visible` |
 | P01-T50 | Request and latency metrics are accurate | PASS | `percentiles_report_bucket_upper_bounds`, `drain_and_restore_round_trip` |
 | P01-T51 | Metric cardinality and storage growth are bounded | PASS | closed `operations::ALL` label set; retention pruning (`usage_and_metric_buckets_accumulate_and_prune`, PostgreSQL) |
-| P01-T52 | Historical telemetry persists | see log | `usage_and_metrics_are_flushed_to_the_store`, PostgreSQL tests in `gateway_db.rs` |
+| P01-T52 | Historical telemetry persists | PASS | `usage_and_metrics_are_flushed_to_the_store`, PostgreSQL tests in `gateway_db.rs` |
 | P01-T53 | Monitoring API does not trigger external provider traffic | PASS | `snapshots_and_stored_reads_never_contact_providers`; `gateway_endpoints_report_local_state_only` (API); smoke check "monitoring reads create no provider requests" |
 | P01-T54 | Real-provider smoke tests are reported honestly | NOT RUN | needs the owner's explicit opt-in (`gateway-diagnostics.ps1 -Live`); offline diagnostics ran and contacted nothing |
 | P01-T55 | Capacity model and benchmark methodology are documented | PASS | [GATEWAY_CAPACITY_MODEL.md](../architecture/GATEWAY_CAPACITY_MODEL.md); `cargo bench -p solprint-gateway` |
@@ -180,9 +180,47 @@ no criterion here claims verification against a live provider (see P01-T54).
 | P01-T74 | Live trading remains impossible | PASS | configuration rejects live; `execution_capability: NONE`; no signing code (`deny.toml` bans) |
 | P01-T75 | No paid features are activated | PASS | no overage/top-up configuration exists; paid endpoints not implemented; defaults below free limits |
 | P01-T76 | Application operates safely without provider credentials | PASS | `missing_helius_key_disables_helius`; API tests and the verification stack run with no keys |
-| P01-T77 | Backend and frontend automated tests pass | see log | |
-| P01-T78 | Complete local verification passes on the exact candidate revision | see log | |
+| P01-T77 | Backend and frontend automated tests pass | PASS | on `72537c7`: Rust 203 (incl. PostgreSQL), Vitest 34, Playwright ui 42, e2e 5 — 0 failures |
+| P01-T78 | Complete local verification passes on the exact candidate revision | FAIL | `verify.ps1` on `72537c7`: 16 PASS, visual FAIL (21 baselines missing or changed, awaiting owner approval), cargo deny BLOCKED (not installed). See log |
 | P01-T79 | Documentation is complete and accurate | PASS | documents listed above, written against the implemented code |
 | P01-T80 | No future-phase trading functionality is implemented | PASS | no signals, sizing, positions, execution or wallet code; scope review |
 
 ## Verification log
+
+### 2026-11-26 — `verify.ps1` (full mode) on `72537c73536bbb0f47b318a2bd7f584a9039d0f9`
+
+Toolchain: rustc 1.99.1, Node v24.19.0, Docker 29.9.3; Windows 11. Duration 826 s.
+Exit code 1. The run removed its worktree, Compose project, volumes and images.
+
+| Check | Result | Tests |
+|---|---|---|
+| Isolated checkout | PASS | |
+| Secret scan: candidate revision | PASS | |
+| Secret scan: staged changes and full history | PASS | |
+| Dockerfile lint (hadolint) | PASS | |
+| Locked frontend install (npm ci) | PASS | |
+| Quality gate (check.ps1) | PASS | Rust 194, Vitest 34 |
+| Production bundle excludes fixtures and showcase | PASS | |
+| PostgreSQL integration tests (test.ps1) | PASS | Rust 203 |
+| Rust advisories and licences (cargo deny) | BLOCKED | cargo-deny not installed |
+| npm advisories (high and critical) | PASS | |
+| Playwright ui | PASS | 42 |
+| Playwright visual | FAIL | 7 passed, 21 failed |
+| Synthetic .env and isolated Compose config | PASS | |
+| Clean image builds and stack startup | PASS | |
+| Container hardening | PASS | |
+| Smoke test | PASS | |
+| End-to-end (real stack) | PASS | 5 |
+| Container logs contain no configured secret | PASS | |
+
+Visual failures, all expected from intended changes: 9 Gateway screenshots have no
+baseline yet (1920, 1440, 1280, 1024, 390; idle and pressure at 1440 and 390), and 12
+Overview/System screenshots differ by 1–2 % of pixels because provider health now reads
+"Not measured" and GATEWAY is listed as read-only. They need owner review and
+`./scripts/playwright.ps1 -Project visual -UpdateSnapshots` as candidate baselines.
+
+An earlier run on `f80cccf` failed the quality gate (Compose validation needed a `.env`
+in the clean checkout) and the smoke test (gateway responses read with a wrong
+envelope); both were fixed in `72537c7`. This document was updated after the run;
+the change is documentation only.
+
