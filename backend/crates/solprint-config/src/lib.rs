@@ -82,6 +82,7 @@ pub struct Config {
     pub log: LogConfig,
     pub trading: TradingConfig,
     pub providers: ProviderConfig,
+    pub gateway: GatewayConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +145,66 @@ pub struct ProviderConfig {
     /// May embed a provider key in its path or query, so it is treated as a
     /// secret. Use [`redacted_origin`] for diagnostics.
     pub solana_fallback_rpc_url: Secret<Url>,
+}
+
+/// GATEWAY (Phase 01): limits, budgets and provider switches. Defaults sit
+/// below the documented free-tier ceilings in
+/// `docs/architecture/PROVIDER_CAPABILITIES.md`.
+#[derive(Debug, Clone)]
+pub struct GatewayConfig {
+    pub enabled: bool,
+    pub default_deadline: Duration,
+    pub connect_timeout: Duration,
+    pub global_queue_limit: usize,
+    pub provider_queue_limit: usize,
+    pub max_response_bytes: usize,
+    pub cache_max_entries: u64,
+    pub flush_interval: Duration,
+    pub usage_retention_days: u32,
+    pub metrics_retention_days: u32,
+    pub streams_enabled: bool,
+    pub helius: HeliusConfig,
+    pub jupiter: JupiterConfig,
+    pub dexscreener: DexScreenerConfig,
+    pub fallback: FallbackConfig,
+}
+
+#[derive(Debug, Clone)]
+pub struct HeliusConfig {
+    /// Base RPC URL *without* the key; the key is appended at the point of use.
+    pub rpc_url: Url,
+    pub ws_url: Url,
+    pub monthly_credits: u64,
+    pub reserve_percent: u8,
+    /// UTC day of month (1-28) on which the billing cycle starts.
+    pub billing_cycle_start_day: u8,
+    pub rpc_rps: u32,
+    pub max_in_flight: usize,
+    pub ws_max_subscriptions: usize,
+    pub get_block_enabled: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct JupiterConfig {
+    pub base_url: Url,
+    /// Requests per minute for the shared general bucket (already capped to
+    /// the keyless tier when no key is configured).
+    pub rpm: u32,
+    pub max_in_flight: usize,
+    pub quote_enabled: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct DexScreenerConfig {
+    pub rpm: u32,
+    pub max_in_flight: usize,
+    pub discovery_enabled: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct FallbackConfig {
+    pub enabled: bool,
+    pub rps: u32,
 }
 
 /// Scheme + host + port only; strips user info, path and query.
@@ -295,18 +356,85 @@ impl Config {
         let jupiter_api_key = r.optional_secret("JUPITER_API_KEY");
         let dexscreener_base_url =
             r.https_url("DEXSCREENER_BASE_URL", "https://api.dexscreener.com");
-        let solana_fallback_rpc_url = r.https_url(
-            "SOLANA_FALLBACK_RPC_URL",
-            "https://api.mainnet-beta.solana.com",
-        );
+        let solana_fallback_rpc_url =
+            r.https_url("SOLANA_FALLBACK_RPC_URL", "https://api.mainnet.solana.com");
+
+        let gw_enabled = r.bool("GATEWAY_ENABLED", true);
+        let gw_deadline = r.range("GATEWAY_DEFAULT_DEADLINE_MS", 10_000, 100, 60_000);
+        let gw_connect = r.range("GATEWAY_CONNECT_TIMEOUT_MS", 5_000, 100, 30_000);
+        let gw_global_q = r.range("GATEWAY_GLOBAL_QUEUE_LIMIT", 512, 1, 4_096);
+        let gw_provider_q = r.range("GATEWAY_PROVIDER_QUEUE_LIMIT", 128, 1, 1_024);
+        if gw_provider_q > gw_global_q {
+            r.issue(
+                "GATEWAY_PROVIDER_QUEUE_LIMIT",
+                "must not exceed GATEWAY_GLOBAL_QUEUE_LIMIT",
+            );
+        }
+        let gw_max_body = r.range("GATEWAY_MAX_RESPONSE_BYTES", 8_388_608, 65_536, 67_108_864);
+        let gw_cache = r.range("GATEWAY_CACHE_MAX_ENTRIES", 10_000, 0, 1_000_000);
+        let gw_flush = r.range("GATEWAY_FLUSH_INTERVAL_SECS", 30, 5, 600);
+        let gw_usage_ret = r.range("GATEWAY_USAGE_RETENTION_DAYS", 90, 1, 3_650);
+        let gw_metric_ret = r.range("GATEWAY_METRICS_RETENTION_DAYS", 14, 1, 365);
+        let gw_streams = r.bool("GATEWAY_STREAMS_ENABLED", false);
+
+        let helius_rpc_url = r.https_url("HELIUS_RPC_URL", "https://mainnet.helius-rpc.com");
+        let helius_ws_url = r.wss_url("HELIUS_WS_URL", "wss://mainnet.helius-rpc.com");
+        for (key, url) in [
+            ("HELIUS_RPC_URL", &helius_rpc_url),
+            ("HELIUS_WS_URL", &helius_ws_url),
+        ] {
+            if url
+                .as_ref()
+                .is_some_and(|u| u.query().is_some() || !u.username().is_empty())
+            {
+                r.issue(
+                    key,
+                    "must not contain a query or user info; set HELIUS_API_KEY instead",
+                );
+            }
+        }
+        let helius_credits = r.range("HELIUS_MONTHLY_CREDITS", 1_000_000, 0, 1_000_000_000);
+        let helius_reserve = r.range("HELIUS_RESERVE_PERCENT", 20, 0, 90);
+        let helius_cycle_day = r.range("HELIUS_BILLING_CYCLE_START_DAY", 1, 1, 28);
+        let helius_rps = r.range("HELIUS_RPC_RPS", 5, 1, 10);
+        let helius_in_flight = r.range("HELIUS_MAX_IN_FLIGHT", 4, 1, 16);
+        let helius_ws_subs = r.range("HELIUS_WS_MAX_SUBSCRIPTIONS", 100, 1, 1_000);
+        let helius_get_block = r.bool("HELIUS_GET_BLOCK_ENABLED", false);
+
+        let jupiter_base = r.https_url("JUPITER_BASE_URL", "https://api.jup.ag");
+        // Documented tiers: 60 RPM with a key, 30 RPM keyless.
+        let jupiter_ceiling = if jupiter_api_key.is_some() { 60 } else { 30 };
+        let jupiter_rpm = r.range("JUPITER_RPM", 50, 1, 60).min(jupiter_ceiling);
+        let jupiter_in_flight = r.range("JUPITER_MAX_IN_FLIGHT", 2, 1, 4);
+        let jupiter_quote = r.bool("JUPITER_QUOTE_ENABLED", true);
+
+        let dex_rpm = r.range("DEXSCREENER_RPM", 240, 1, 300);
+        let dex_in_flight = r.range("DEXSCREENER_MAX_IN_FLIGHT", 4, 1, 8);
+        let dex_discovery = r.bool("DEXSCREENER_DISCOVERY_ENABLED", false);
+
+        let fallback_enabled = r.bool("SOLANA_FALLBACK_ENABLED", true);
+        let fallback_rps = r.range("SOLANA_FALLBACK_RPS", 2, 1, 4);
 
         if !r.issues.is_empty() {
             return Err(ConfigError::Invalid(r.issues));
         }
 
         // Every `None` above recorded an issue, so these are present.
-        let (Some(database_url), Some(dexscreener_base_url), Some(solana_fallback_rpc_url)) =
-            (database_url, dexscreener_base_url, solana_fallback_rpc_url)
+        let (
+            Some(database_url),
+            Some(dexscreener_base_url),
+            Some(solana_fallback_rpc_url),
+            Some(helius_rpc_url),
+            Some(helius_ws_url),
+            Some(jupiter_base),
+        ) = (
+            database_url,
+            dexscreener_base_url,
+            solana_fallback_rpc_url,
+            helius_rpc_url,
+            helius_ws_url,
+            jupiter_base,
+        )
         else {
             return Err(ConfigError::Invalid(vec![ConfigIssue {
                 key: "CONFIG",
@@ -342,6 +470,45 @@ impl Config {
                 dexscreener_base_url,
                 solana_fallback_rpc_url: Secret::new(solana_fallback_rpc_url),
             },
+            gateway: GatewayConfig {
+                enabled: gw_enabled,
+                default_deadline: Duration::from_millis(gw_deadline),
+                connect_timeout: Duration::from_millis(gw_connect),
+                global_queue_limit: to_usize(gw_global_q),
+                provider_queue_limit: to_usize(gw_provider_q),
+                max_response_bytes: to_usize(gw_max_body),
+                cache_max_entries: gw_cache,
+                flush_interval: Duration::from_secs(gw_flush),
+                usage_retention_days: to_u32(gw_usage_ret),
+                metrics_retention_days: to_u32(gw_metric_ret),
+                streams_enabled: gw_streams,
+                helius: HeliusConfig {
+                    rpc_url: helius_rpc_url,
+                    ws_url: helius_ws_url,
+                    monthly_credits: helius_credits,
+                    reserve_percent: u8::try_from(helius_reserve).unwrap_or(20),
+                    billing_cycle_start_day: u8::try_from(helius_cycle_day).unwrap_or(1),
+                    rpc_rps: to_u32(helius_rps),
+                    max_in_flight: to_usize(helius_in_flight),
+                    ws_max_subscriptions: to_usize(helius_ws_subs),
+                    get_block_enabled: helius_get_block,
+                },
+                jupiter: JupiterConfig {
+                    base_url: jupiter_base,
+                    rpm: to_u32(jupiter_rpm),
+                    max_in_flight: to_usize(jupiter_in_flight),
+                    quote_enabled: jupiter_quote,
+                },
+                dexscreener: DexScreenerConfig {
+                    rpm: to_u32(dex_rpm),
+                    max_in_flight: to_usize(dex_in_flight),
+                    discovery_enabled: dex_discovery,
+                },
+                fallback: FallbackConfig {
+                    enabled: fallback_enabled,
+                    rps: to_u32(fallback_rps),
+                },
+            },
         })
     }
 
@@ -363,7 +530,8 @@ impl fmt::Display for SafeSummary<'_> {
             f,
             "env={} bind={}:{} db={} db_max_connections={} migrations={} log={}/{:?} \
              trading_mode={} live_trading_enabled={} helius_key={} jupiter_key={} \
-             dexscreener={} fallback_rpc={}",
+             dexscreener={} fallback_rpc={} gateway={} streams={} \
+             helius_credits={}/month reserve={}%",
             c.app.env.as_str(),
             c.app.host,
             c.app.port,
@@ -378,8 +546,21 @@ impl fmt::Display for SafeSummary<'_> {
             presence(c.providers.jupiter_api_key.is_some()),
             redacted_origin(&c.providers.dexscreener_base_url),
             redacted_origin(c.providers.solana_fallback_rpc_url.expose()),
+            c.gateway.enabled,
+            c.gateway.streams_enabled,
+            c.gateway.helius.monthly_credits,
+            c.gateway.helius.reserve_percent,
         )
     }
+}
+
+/// Values were range-checked by [`Reader::range`], so these never saturate.
+fn to_usize(v: u64) -> usize {
+    usize::try_from(v).unwrap_or(usize::MAX)
+}
+
+fn to_u32(v: u64) -> u32 {
+    u32::try_from(v).unwrap_or(u32::MAX)
 }
 
 const fn presence(configured: bool) -> &'static str {
@@ -457,11 +638,19 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
     }
 
     fn https_url(&mut self, key: &'static str, default: &str) -> Option<Url> {
+        self.secure_url(key, default, "https")
+    }
+
+    fn wss_url(&mut self, key: &'static str, default: &str) -> Option<Url> {
+        self.secure_url(key, default, "wss")
+    }
+
+    fn secure_url(&mut self, key: &'static str, default: &str, scheme: &str) -> Option<Url> {
         let raw = self.get(key).unwrap_or_else(|| default.to_owned());
         match Url::parse(&raw) {
-            Ok(url) if url.scheme() == "https" && url.has_host() => Some(url),
+            Ok(url) if url.scheme() == scheme && url.has_host() => Some(url),
             Ok(_) => {
-                self.issue(key, "must be an https:// URL with a host");
+                self.issue(key, format!("must be a {scheme}:// URL with a host"));
                 None
             }
             Err(_) => {
@@ -538,6 +727,65 @@ mod tests {
         assert!(c.providers.jupiter_api_key.is_none());
         assert_eq!(c.database.max_connections, 5);
         assert_eq!(c.log.format, LogFormat::Pretty);
+    }
+
+    #[test]
+    fn gateway_defaults_stay_below_documented_free_tier_ceilings() {
+        let c = cfg(&[]).unwrap();
+        let g = &c.gateway;
+        assert!(g.enabled);
+        assert!(!g.streams_enabled, "streams must be opt-in");
+        assert_eq!(g.global_queue_limit, 512);
+        assert_eq!(g.provider_queue_limit, 128);
+        assert_eq!(g.helius.monthly_credits, 1_000_000);
+        assert_eq!(g.helius.reserve_percent, 20);
+        assert!(g.helius.rpc_rps <= 10);
+        assert_eq!(g.helius.max_in_flight, 4);
+        assert!(!g.helius.get_block_enabled);
+        // No Jupiter key: capped to the keyless tier.
+        assert_eq!(g.jupiter.rpm, 30);
+        assert_eq!(g.jupiter.max_in_flight, 2);
+        assert!(g.dexscreener.rpm <= 300);
+        assert!(!g.dexscreener.discovery_enabled);
+        assert_eq!(g.fallback.rps, 2);
+        assert_eq!(
+            c.providers.solana_fallback_rpc_url.expose().as_str(),
+            "https://api.mainnet.solana.com/"
+        );
+        let with_key = cfg(&[("JUPITER_API_KEY", "synthetic-key"), ("JUPITER_RPM", "60")]).unwrap();
+        assert_eq!(with_key.gateway.jupiter.rpm, 60);
+    }
+
+    #[test]
+    fn gateway_limits_are_validated() {
+        let err = cfg(&[
+            ("HELIUS_RPC_RPS", "11"),
+            ("HELIUS_RESERVE_PERCENT", "95"),
+            ("HELIUS_BILLING_CYCLE_START_DAY", "31"),
+            ("HELIUS_WS_URL", "ws://mainnet.helius-rpc.com"),
+            (
+                "HELIUS_RPC_URL",
+                "https://mainnet.helius-rpc.com/?api-key=synthetic-inline-key",
+            ),
+            ("JUPITER_RPM", "61"),
+            ("DEXSCREENER_RPM", "301"),
+            ("GATEWAY_PROVIDER_QUEUE_LIMIT", "1024"),
+            ("GATEWAY_GLOBAL_QUEUE_LIMIT", "64"),
+        ])
+        .unwrap_err();
+        for key in [
+            "HELIUS_RPC_RPS",
+            "HELIUS_RESERVE_PERCENT",
+            "HELIUS_BILLING_CYCLE_START_DAY",
+            "HELIUS_WS_URL",
+            "HELIUS_RPC_URL",
+            "JUPITER_RPM",
+            "DEXSCREENER_RPM",
+            "GATEWAY_PROVIDER_QUEUE_LIMIT",
+        ] {
+            assert!(err.has_issue(key), "missing issue for {key}: {err}");
+        }
+        assert!(!err.to_string().contains("synthetic-inline-key"));
     }
 
     #[test]

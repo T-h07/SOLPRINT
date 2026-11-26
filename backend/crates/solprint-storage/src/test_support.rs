@@ -2,7 +2,7 @@
 //!
 //! Tests never touch the development database. They require
 //! `SOLPRINT_TEST_DATABASE_URL`, pointing at a *disposable* PostgreSQL server
-//! (the `scripts/test.ps1` throwaway container, or the CI service). Each test
+//! (the `scripts/test.ps1` throwaway container, also used by `scripts/verify.ps1`). Each test
 //! creates its own uniquely named database on that server and drops it
 //! afterwards.
 

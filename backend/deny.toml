@@ -1,7 +1,7 @@
 # cargo-deny policy (https://embarkstudios.github.io/cargo-deny/).
-# Run: cargo deny check   (CI runs it on every push and pull request.)
+# Run: cargo deny check   (scripts/verify.ps1 runs it when cargo-deny is installed.)
 #
-# Advisory policy: any RustSec vulnerability or unsound advisory fails CI.
+# Advisory policy: any RustSec vulnerability or unsound advisory fails the gate.
 # An exception may only be added to `advisories.ignore` with the advisory ID,
 # a written reason, and a review date, and must be approved by the owner.
 
@@ -21,6 +21,8 @@ allow = [
   "Apache-2.0 WITH LLVM-exception",
   "BSD-2-Clause",
   "BSD-3-Clause",
+  # webpki-roots: Mozilla CA bundle data (permissive data licence).
+  "CDLA-Permissive-2.0",
   "ISC",
   "MIT",
   "Unicode-3.0",
@@ -39,7 +41,7 @@ allow-wildcard-paths = true
 # dependency graph without an explicit, reviewed phase decision.
 deny = [
   { name = "solana-sdk", reason = "transaction signing is out of scope until an approved execution phase" },
-  { name = "solana-client", reason = "provider clients arrive with GATEWAY (Phase 01)" },
+  { name = "solana-client", reason = "GATEWAY uses its own read-only JSON-RPC client; no SDK clients" },
   { name = "ed25519-dalek", reason = "key material handling is out of scope in Phase 00" },
   { name = "openssl", reason = "the stack is rustls/tls-none; avoid native OpenSSL linkage" },
 ]
