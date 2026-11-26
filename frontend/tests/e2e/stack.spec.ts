@@ -5,7 +5,10 @@ import { expect, test } from '@playwright/test';
  * and PostgreSQL. Start it first (scripts/dev.ps1 -Mode docker) and set
  * E2E_BASE_URL if it is not http://127.0.0.1:3000.
  */
-test('the shell reflects the real backend: PAPER, ready, no execution', async ({ page, request }) => {
+test('the shell reflects the real backend: PAPER, ready, no execution', async ({
+  page,
+  request,
+}) => {
   const status = await request.get('/api/v1/system/status');
   expect(status.ok()).toBe(true);
   const body = (await status.json()) as {

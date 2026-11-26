@@ -32,7 +32,10 @@ test.describe('operating state', () => {
     await expect(mode).toHaveAttribute('data-mode', 'paper');
     await expect(mode).toContainText(/paper mode/i);
     await expect(mode).toContainText(/live trading disabled/i);
-    await expect(page.getByTestId('connection-indicator')).toHaveAttribute('data-state', 'connected');
+    await expect(page.getByTestId('connection-indicator')).toHaveAttribute(
+      'data-state',
+      'connected',
+    );
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Overview');
     expect(errors).toEqual([]);
   });
@@ -50,7 +53,10 @@ test.describe('operating state', () => {
     await mockBackend(page, 'database-down');
     await page.goto('/system');
     await settle(page);
-    await expect(page.getByTestId('connection-indicator')).toHaveAttribute('data-state', 'degraded');
+    await expect(page.getByTestId('connection-indicator')).toHaveAttribute(
+      'data-state',
+      'degraded',
+    );
     await expect(page.getByText(/unavailable/i).first()).toBeVisible();
   });
 
@@ -58,7 +64,10 @@ test.describe('operating state', () => {
     await mockBackend(page, 'loading');
     await page.goto('/');
     await expect(page.locator('[aria-busy="true"]').first()).toBeVisible();
-    await expect(page.getByTestId('connection-indicator')).toHaveAttribute('data-state', 'connecting');
+    await expect(page.getByTestId('connection-indicator')).toHaveAttribute(
+      'data-state',
+      'connecting',
+    );
     await expect(page.getByText(/paper mode/i)).toHaveCount(0);
   });
 

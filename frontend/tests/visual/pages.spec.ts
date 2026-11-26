@@ -27,7 +27,10 @@ for (const vp of VIEWPORTS) {
         await mockBackend(page, p.scenario);
         await page.goto(p.path);
         if (p.scenario === 'offline') {
-          await expect(page.getByTestId('mode-indicator')).toHaveAttribute('data-mode', 'unverified');
+          await expect(page.getByTestId('mode-indicator')).toHaveAttribute(
+            'data-mode',
+            'unverified',
+          );
         }
         await settle(page, { allowBusy: p.path === '/design-system' || p.scenario === 'offline' });
         await expect(page).toHaveScreenshot(`${p.name}-${vp.name}.png`, { fullPage: p.fullPage });
