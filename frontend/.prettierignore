@@ -1,0 +1,8 @@
+dist
+node_modules
+test-results
+playwright-report
+package-lock.json
+src/types/generated
+tests/visual/__screenshots__
+dist-showcase
