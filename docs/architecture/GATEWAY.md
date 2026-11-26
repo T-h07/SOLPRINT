@@ -130,8 +130,9 @@ admits normal traffic.
   coalesced, retries, latency histogram (15 fixed buckets; percentiles are reported as
   bucket upper bounds). Labels come from the closed `operations::ALL` set, so
   cardinality is fixed.
-* Every `GATEWAY_FLUSH_INTERVAL_SECS` (30 s) and at shutdown, GATEWAY writes additive
-  hourly usage and metric buckets and the billing-cycle credit total to PostgreSQL
+* Every `GATEWAY_FLUSH_INTERVAL_SECS` (30 s) and at shutdown, GATEWAY writes
+  additive per-minute usage and metric buckets (read back aggregated by hour) and the
+  billing-cycle credit total to PostgreSQL
   (migration `20261126000002_gateway.sql`: `gateway_billing_cycles`,
   `gateway_usage_buckets`, `gateway_metric_buckets`, `gateway_stream_checkpoints`).
   A failed flush keeps the deltas and retries. Rows older than the retention settings

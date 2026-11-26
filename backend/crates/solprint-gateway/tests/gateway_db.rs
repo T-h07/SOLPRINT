@@ -132,10 +132,21 @@ async fn usage_and_metric_buckets_accumulate_and_prune() {
         .sum();
     assert_eq!(recent, 3, "same bucket adds up");
 
-    let window = db.gateway_metric_window(&at(1_699_000_000)).await.unwrap();
-    let current = window.iter().find(|m| m.bucket_start == bucket).unwrap();
-    assert_eq!(current.success_count, 2);
+    // The window sums every bucket since `since`, per provider and operation.
+    let since = at(bucket.as_offset_datetime().unix_timestamp() - 3_600);
+    let window = db.gateway_metric_window(&since).await.unwrap();
+    let current = window
+        .iter()
+        .find(|m| m.provider == "helius" && m.operation == "getSlot")
+        .unwrap();
+    assert_eq!(current.bucket_start, since);
+    assert_eq!(
+        current.success_count, 2,
+        "old bucket excluded, same bucket adds up"
+    );
     assert_eq!(current.latency_hist[1], 2, "histograms add element-wise");
+    let all = db.gateway_metric_window(&at(1_699_000_000)).await.unwrap();
+    assert_eq!(all[0].success_count, 3);
 
     let pruned = db.gateway_prune(&now, &now).await.unwrap();
     assert!(pruned.usage_rows >= 1);

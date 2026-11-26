@@ -22,7 +22,7 @@ LLMs, paid API features, the full TERMINAL dashboard, hosted CI/CD.
 | Area | Implementation |
 |---|---|
 | Crate | `solprint-gateway`: engine, scheduler, GCRA rate limiter, budget, moka cache, single-flight, breaker, health, metrics, transport, JSON-RPC, Helius RPC, Jupiter, DEX Screener, stream manager, snapshots, store trait, typed traits ([GATEWAY.md](../architecture/GATEWAY.md)) |
-| Persistence | migration `20261126000002_gateway.sql`: billing cycles, hourly usage and metric buckets, stream checkpoints; `GatewayStore` implemented for `Database` |
+| Persistence | migration `20261126000002_gateway.sql`: billing cycles, per-minute usage and metric buckets, stream checkpoints; `GatewayStore` implemented for `Database` |
 | API | `/api/v1/gateway/{status,providers,usage,metrics,budgets,streams,cache}`; `/system/status` providers now carry measured health (`UNKNOWN` until traffic) |
 | Configuration | 29 new keys with validated ranges (and a new default fallback URL) ([CONFIGURATION.md](../development/CONFIGURATION.md)); defaults below documented provider limits; streams, discovery and getBlock off |
 | Frontend | `/gateway` workspace (budget, gateway state, providers, operations, usage, streams, cache), all data states; `DefinitionList` `wrap` option; `ModeIndicator` loading state given `role="status"` (axe fix) |

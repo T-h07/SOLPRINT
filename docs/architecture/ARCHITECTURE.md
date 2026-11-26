@@ -77,7 +77,7 @@ are capped (`HTTP_BODY_LIMIT_BYTES`) and requests time out (`HTTP_REQUEST_TIMEOU
 * Phase 00 schema: `solprint.instance` (singleton row: `instance_id`, `created_at`,
   `last_started_at`, `start_count`, `last_app_version`).
 * Phase 01 schema: `gateway_billing_cycles`, `gateway_usage_buckets`,
-  `gateway_metric_buckets` (hourly, additive, pruned by retention) and
+  `gateway_metric_buckets` (per-minute, additive, pruned by retention) and
   `gateway_stream_checkpoints`.
 * Compose creates two roles: `solprint_admin` (superuser, bootstrap only) and
   `solprint_app` (non-superuser, owns database `solprint`), which the backend uses.

@@ -51,7 +51,7 @@ measured, because no module generates sustained traffic in Phase 01.
 | Scheduler queues | 128 waiters per provider, 512 overall |
 | Metrics | fixed: closed operation set × providers × 16 latency buckets |
 | Stream events | 1 024-event channel; 4 096-entry dedup set; ≤ `HELIUS_WS_MAX_SUBSCRIPTIONS` (100) subscriptions; ≤ 64 log lines of ≤ 512 characters per notification |
-| Stored telemetry | hourly buckets per provider × operation; usage kept 90 days, metrics 14 days, pruned hourly |
+| Stored telemetry | per-minute buckets per provider × operation (bounded labels); usage kept 90 days, metrics 14 days, pruned hourly |
 
 ## Overhead benchmarks
 
