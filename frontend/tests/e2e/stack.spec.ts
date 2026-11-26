@@ -36,8 +36,20 @@ test('readiness and liveness answer through the same-origin proxy', async ({ req
 test('system page shows real database and provider state', async ({ page }) => {
   await page.goto('/system');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('System');
-  await expect(page.getByText(/not initialized/i).first()).toBeVisible();
+  // No provider request has happened in a fresh stack: health is unmeasured.
+  await expect(page.getByText(/not measured/i).first()).toBeVisible();
   await expect(page.getByText(/available/i).first()).toBeVisible();
+});
+
+test('gateway page reads local state only', async ({ page, request }) => {
+  const status = await request.get('/api/v1/gateway/status');
+  expect(status.status()).toBe(200);
+  expect(((await status.json()) as { execution_capability: string }).execution_capability).toBe(
+    'NONE',
+  );
+  await page.goto('/gateway');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Gateway');
+  await expect(page.getByRole('meter', { name: 'Helius credits used' })).toBeVisible();
 });
 
 test('production build does not expose the design-system showcase', async ({ page }) => {

@@ -71,12 +71,13 @@ test.describe('operating state', () => {
     await expect(page.getByText(/paper mode/i)).toHaveCount(0);
   });
 
-  test('providers are reported as not initialized, with no measurements', async ({ page }) => {
+  test('provider health comes from GATEWAY, unmeasured providers say so', async ({ page }) => {
     await mockBackend(page, 'healthy');
     await page.goto('/system');
     await settle(page);
     await expect(page.getByText('Helius').first()).toBeVisible();
-    await expect(page.getByText(/not initialized/i).first()).toBeVisible();
+    await expect(page.getByText(/^healthy$/i).first()).toBeVisible();
+    await expect(page.getByText(/not measured/i).first()).toBeVisible();
   });
 });
 
@@ -113,11 +114,20 @@ test.describe('navigation and keyboard', () => {
 });
 
 test.describe('accessibility (axe, WCAG 2.2 AA)', () => {
-  for (const path of ['/', '/system', '/design-system', '/does-not-exist']) {
+  for (const path of ['/', '/gateway', '/system', '/design-system', '/does-not-exist']) {
     test(`no violations on ${path}`, async ({ page }) => {
       await mockBackend(page, 'healthy');
       await page.goto(path);
       await settle(page, { allowBusy: path === '/design-system' });
+      expect(await axe(page)).toEqual([]);
+    });
+  }
+
+  for (const scenario of ['gateway-idle', 'gateway-pressure', 'offline', 'loading'] as const) {
+    test(`no violations on /gateway (${scenario})`, async ({ page }) => {
+      await mockBackend(page, scenario);
+      await page.goto('/gateway');
+      await settle(page, { allowBusy: scenario === 'offline' || scenario === 'loading' });
       expect(await axe(page)).toEqual([]);
     });
   }
@@ -132,7 +142,7 @@ test.describe('accessibility (axe, WCAG 2.2 AA)', () => {
 
 test.describe('responsive layout', () => {
   for (const vp of VIEWPORTS) {
-    for (const path of ['/', '/system', '/design-system']) {
+    for (const path of ['/', '/gateway', '/system', '/design-system']) {
       test(`no horizontal overflow at ${vp.name} on ${path}`, async ({ page }) => {
         await page.setViewportSize({ width: vp.width, height: vp.height });
         await mockBackend(page, 'healthy');
@@ -149,4 +159,57 @@ test.describe('responsive layout', () => {
       });
     }
   }
+});
+
+test.describe('gateway workspace', () => {
+  test('budget, providers and operations render from the API', async ({ page }) => {
+    await mockBackend(page, 'healthy');
+    await page.goto('/gateway');
+    await settle(page);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Gateway');
+    const meter = page.getByRole('meter', { name: 'Helius credits used' });
+    await expect(meter).toHaveAttribute('aria-valuenow', '212904');
+    await expect(page.getByText('Conservation ≥ 560,000')).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'getSignaturesForAddress' })).toBeVisible();
+    // Read-only is stated, not implied.
+    await expect(page.getByText(/read-only access layer/i)).toBeVisible();
+    // Local accounting is labelled as an estimate, not the provider's bill.
+    await expect(page.getByText(/authoritative for billing/i)).toBeVisible();
+  });
+
+  test('idle gateway says nothing was measured instead of showing zeros as health', async ({
+    page,
+  }) => {
+    await mockBackend(page, 'gateway-idle');
+    await page.goto('/gateway');
+    await settle(page);
+    await expect(page.getByText(/no provider request has been made/i)).toBeVisible();
+    await expect(page.getByText(/streams are off/i)).toBeVisible();
+    await expect(page.getByText(/not measured/i).first()).toBeVisible();
+  });
+
+  test('pressure: conservation, open circuit and stream gap are spelled out', async ({ page }) => {
+    await mockBackend(page, 'gateway-pressure');
+    await page.goto('/gateway');
+    await settle(page);
+    await expect(page.getByText('Conservation', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('P0–P3')).toBeVisible();
+    await expect(page.getByText(/^open$/i).first()).toBeVisible();
+    await expect(page.getByText(/^gap$/i).first()).toBeVisible();
+    await expect(page.getByText(/118 dropped/)).toBeVisible();
+  });
+
+  test('database down: stored usage is marked partial, not empty', async ({ page }) => {
+    await mockBackend(page, 'database-down');
+    await page.goto('/gateway');
+    await settle(page);
+    await expect(page.getByText(/stored history unavailable/i)).toBeVisible();
+  });
+
+  test('offline: every pane reports the failure with a safe retry', async ({ page }) => {
+    await mockBackend(page, 'offline');
+    await page.goto('/gateway');
+    await expect(page.getByText(/credit budget unavailable/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Retry' }).first()).toBeVisible();
+  });
 });

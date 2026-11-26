@@ -90,3 +90,26 @@ export function formatLatencyUs(us: number | null | undefined): string {
   if (us < 1_000_000) return `${(us / 1_000).toFixed(1)} ms`;
   return `${(us / 1_000_000).toFixed(2)} s`;
 }
+
+/** Byte counts -> "512 B" / "12.4 KB" / "3.21 MB" / "1.05 GB" (decimal units, as metered). */
+export function formatBytes(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined || !Number.isSafeInteger(bytes) || bytes < 0)
+    return '—';
+  if (bytes < 1_000) return `${bytes.toString()} B`;
+  if (bytes < 1_000_000) return `${(bytes / 1_000).toFixed(1)} KB`;
+  if (bytes < 1_000_000_000) return `${(bytes / 1_000_000).toFixed(2)} MB`;
+  return `${(bytes / 1_000_000_000).toFixed(2)} GB`;
+}
+
+/**
+ * Integer share `part / whole` as a percentage with fixed places, rounded
+ * down so a nearly exhausted budget never displays as fully exhausted early.
+ */
+export function formatShare(part: number, whole: number, places = 1): string {
+  if (!Number.isSafeInteger(part) || !Number.isSafeInteger(whole) || whole <= 0 || part < 0) {
+    return '—';
+  }
+  const scale = 10n ** BigInt(places);
+  const scaled = (BigInt(part) * 100n * scale) / BigInt(whole);
+  return `${formatBaseUnits(scaled.toString(), places, places)}%`;
+}

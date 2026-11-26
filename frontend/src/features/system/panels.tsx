@@ -8,6 +8,7 @@ import { useConnection } from '@/components/shell/useConnection.ts';
 import { Button } from '@/components/ui/Button.tsx';
 import { DataState, Skeleton } from '@/components/ui/DataState.tsx';
 import { DataAge, MetricCell, Timestamp } from '@/components/ui/Metric.tsx';
+import { healthLabel } from '@/features/gateway/labels.ts';
 import { DefinitionList, Panel } from '@/components/ui/Panel.tsx';
 import { StatusIndicator } from '@/components/ui/StatusIndicator.tsx';
 import { TBody, THead, Table, Td, Th, Tr } from '@/components/ui/Table.tsx';
@@ -193,7 +194,7 @@ const credentialLabel: Record<CredentialState, { tone: 'neutral' | 'positive'; l
   NOT_REQUIRED: { tone: 'neutral', label: 'Not required' },
 };
 
-/** External providers, truthfully: none is integrated in Phase 00. */
+/** External providers: configuration plus GATEWAY's measured health. */
 export function ProvidersPanel({
   className,
   showRole = true,
@@ -244,8 +245,8 @@ export function ProvidersPanel({
             </TBody>
           </Table>
           <p className="m-0 border-t border-line-subtle px-3 py-2 text-xs text-fg-muted">
-            Provider clients arrive with GATEWAY. Earlier manual connectivity diagnostics are not
-            shown as current measurements.
+            Health is measured by GATEWAY from real requests only; no background probe runs. Earlier
+            manual diagnostics are never shown as current measurements.
           </p>
         </>
       )}
@@ -270,7 +271,10 @@ function ProviderRow({ provider, showRole }: { provider: ProviderStatus; showRol
         <StatusIndicator tone={cred.tone} label={cred.label} />
       </Td>
       <Td>
-        <StatusIndicator tone="neutral" label="Not initialized" />
+        <StatusIndicator
+          tone={healthLabel[provider.state].tone}
+          label={healthLabel[provider.state].label}
+        />
       </Td>
       <Td numeric className="hidden text-fg-muted sm:table-cell">
         {provider.last_checked_at ? <Timestamp iso={provider.last_checked_at} /> : 'Never'}
@@ -292,14 +296,14 @@ const MODULES: { name: string; responsibility: string }[] = [
   { name: 'TERMINAL', responsibility: 'Monitoring, analytics and control' },
 ];
 
-/** Architecture status. Static by design: these modules do not exist yet. */
+/** Architecture status. Static by design: it states which modules exist. */
 export function ModulesPanel({ className }: { className?: string }) {
   return (
     <Panel
       title="Modules"
       flush
       className={className}
-      meta={<span>Foundation only · no module is active</span>}
+      meta={<span>GATEWAY implemented · other modules not yet</span>}
     >
       <Table label="SOLPRINT modules">
         <THead>
@@ -320,6 +324,8 @@ export function ModulesPanel({ className }: { className?: string }) {
               <Td>
                 {m.name === 'TERMINAL' ? (
                   <StatusIndicator tone="info" label="Foundation shell" />
+                ) : m.name === 'GATEWAY' ? (
+                  <StatusIndicator tone="info" label="Read-only" />
                 ) : (
                   <StatusIndicator tone="neutral" label="Not implemented" />
                 )}
