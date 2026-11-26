@@ -209,7 +209,10 @@ jobs:
             [ "$ro" = "true" ] && echo "$caps" | grep -q ALL && [ -n "$user" ] && [ "$user" != "root" ] && [ "$user" != "0" ]
           done
           # The backend must not be published on the host.
-          [ -z "$(docker compose port backend 8080 2>/dev/null)" ]
+          # (`docker compose port` prints ":0" for unpublished ports, so inspect bindings.)
+          bindings=$(docker inspect -f '{{json .HostConfig.PortBindings}}' "$(docker compose ps -q backend)")
+          echo "backend port bindings=$bindings"
+          [ "$bindings" = "{}" ] || [ "$bindings" = "null" ]
       - name: Smoke test
         shell: pwsh
         run: ./scripts/smoke-test.ps1
