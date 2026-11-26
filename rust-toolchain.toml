@@ -1,0 +1,6 @@
+# Pinned so local builds, CI and the backend container use the same compiler.
+# Bump deliberately (and update docs/development/SETUP.md) — never float.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
