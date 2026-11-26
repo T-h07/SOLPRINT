@@ -1,0 +1,22 @@
+[package]
+name = "solprint-core"
+description = "Shared SOLPRINT domain types: identifiers, financial amounts, time, trading mode and reason codes."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+chrono = { workspace = true, features = ["std", "clock", "serde"] }
+uuid = { workspace = true, features = ["std", "v7", "serde"] }
+rust_decimal = { workspace = true, features = ["std", "serde-str"] }
+bs58 = { workspace = true, features = ["std"] }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

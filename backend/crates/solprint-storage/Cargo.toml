@@ -1,0 +1,34 @@
+[package]
+name = "solprint-storage"
+description = "PostgreSQL pool, migrations and storage health for SOLPRINT."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+solprint-config.workspace = true
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-none", "postgres", "migrate", "macros", "chrono", "uuid"] }
+tokio = { workspace = true, features = ["time"] }
+tracing.workspace = true
+thiserror.workspace = true
+chrono = { workspace = true, features = ["std", "clock"] }
+
+# Optional helpers for integration tests in this and downstream crates.
+# Never enabled by the application binary.
+uuid = { workspace = true, features = ["v4"], optional = true }
+url = { workspace = true, optional = true }
+
+[features]
+test-support = ["dep:uuid", "dep:url"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[[test]]
+name = "storage"
+required-features = ["test-support"]
+
+[lints]
+workspace = true

@@ -1,0 +1,50 @@
+# cargo-deny policy (https://embarkstudios.github.io/cargo-deny/).
+# Run: cargo deny check   (CI runs it on every push and pull request.)
+#
+# Advisory policy: any RustSec vulnerability or unsound advisory fails CI.
+# An exception may only be added to `advisories.ignore` with the advisory ID,
+# a written reason, and a review date, and must be approved by the owner.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+ignore = []
+
+[licenses]
+version = 2
+confidence-threshold = 0.93
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "MIT",
+  "Unicode-3.0",
+  "Zlib",
+]
+
+[licenses.private]
+# Workspace crates are proprietary (UNLICENSED, publish = false).
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+# Phase 00 is non-executing: no Solana signing or wallet crates may enter the
+# dependency graph without an explicit, reviewed phase decision.
+deny = [
+  { name = "solana-sdk", reason = "transaction signing is out of scope until an approved execution phase" },
+  { name = "solana-client", reason = "provider clients arrive with GATEWAY (Phase 01)" },
+  { name = "ed25519-dalek", reason = "key material handling is out of scope in Phase 00" },
+  { name = "openssl", reason = "the stack is rustls/tls-none; avoid native OpenSSL linkage" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

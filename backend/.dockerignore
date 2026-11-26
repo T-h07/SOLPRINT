@@ -1,0 +1,7 @@
+# Build context for infrastructure/docker/backend.Dockerfile is ./backend.
+target/
+**/*.log
+.env
+.env.*
+*.pem
+*.key

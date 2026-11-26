@@ -1,0 +1,33 @@
+[package]
+name = "solprint-api"
+description = "SOLPRINT HTTP API: routes, response contracts, middleware and error handling."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+solprint-core.workspace = true
+solprint-config.workspace = true
+solprint-storage.workspace = true
+solprint-observability.workspace = true
+axum = { workspace = true, features = ["http1", "json", "tokio", "matched-path", "original-uri"] }
+tower = { workspace = true, features = ["util"] }
+tower-http = { workspace = true, features = ["timeout", "limit"] }
+tokio = { workspace = true, features = ["net", "time"] }
+tokio-util = { workspace = true }
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+uuid = { workspace = true, features = ["v7"] }
+ts-rs = { workspace = true }
+
+[dev-dependencies]
+solprint-storage = { workspace = true, features = ["test-support"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "io-util"] }
+http-body-util.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true
