@@ -34,9 +34,26 @@ Check 'status: PAPER, live trading disabled, no execution capability' {
     $s = (Get-Http '/api/v1/system/status').Content | ConvertFrom-Json
     $s.trading.mode -eq 'PAPER' -and $s.trading.live_trading_enabled -eq $false -and $s.trading.execution_capability -eq 'NONE'
 }
-Check 'status: providers truthfully NOT_INITIALIZED' {
+Check 'status: provider health is measured or UNKNOWN, never assumed' {
     $s = (Get-Http '/api/v1/system/status').Content | ConvertFrom-Json
-    @($s.providers | Where-Object { $_.state -ne 'NOT_INITIALIZED' -or $null -ne $_.last_checked_at }).Count -eq 0
+    $allowed = @('UNKNOWN', 'HEALTHY', 'DEGRADED', 'UNAVAILABLE', 'DISABLED', 'BUDGET_EXHAUSTED')
+    @($s.providers).Count -eq 4 -and @($s.providers | Where-Object { $allowed -notcontains $_.state }).Count -eq 0
+}
+Check 'gateway status: read-only, no execution capability' {
+    $g = ((Get-Http '/api/v1/gateway/status').Content | ConvertFrom-Json).data
+    $g.execution_capability -eq 'NONE'
+}
+Check 'gateway endpoints answer from local state' {
+    foreach ($p in 'providers', 'usage', 'metrics', 'budgets', 'streams', 'cache') {
+        if ((Get-Http "/api/v1/gateway/$p").StatusCode -ne 200) { throw "gateway/$p" }
+    }
+    $true
+}
+Check 'monitoring reads create no provider requests' {
+    $before = ((Get-Http '/api/v1/gateway/providers').Content | ConvertFrom-Json).data.providers | ForEach-Object { $_.traffic.requests }
+    1..5 | ForEach-Object { Get-Http '/api/v1/gateway/status' | Out-Null; Get-Http '/api/v1/system/status' | Out-Null }
+    $after = ((Get-Http '/api/v1/gateway/providers').Content | ConvertFrom-Json).data.providers | ForEach-Object { $_.traffic.requests }
+    ($before -join ',') -eq ($after -join ',')
 }
 Check 'version endpoint' { ((Get-Http '/api/v1/system/version').Content | ConvertFrom-Json).name -eq 'solprint' }
 Check 'unknown API route -> structured 404' {

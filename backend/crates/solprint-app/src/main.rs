@@ -6,20 +6,28 @@
 //! 2. Initialise structured logging.
 //! 3. Connect to PostgreSQL within `DATABASE_STARTUP_TIMEOUT_SECS`.
 //! 4. Apply (or verify) migrations and record this start.
-//! 5. Bind the HTTP listener and serve.
-//! 6. On SIGINT / SIGTERM (Linux) or Ctrl+C / Ctrl+Break / close (Windows):
-//!    stop accepting, drain in-flight requests, close the pool, exit 0.
+//! 5. Build GATEWAY (contacts nothing until asked) and start its
+//!    maintenance task (ledger load, usage flush, retention; streams only if
+//!    `GATEWAY_STREAMS_ENABLED=true`).
+//! 6. Bind the HTTP listener and serve.
+//! 7. On SIGINT / SIGTERM (Linux) or Ctrl+C / Ctrl+Break / close (Windows):
+//!    stop accepting, drain in-flight requests, stop GATEWAY (final usage
+//!    flush), close the pool, exit 0.
 //!
-//! Any failure in 1–5 exits non-zero before the listener exists, so the
+//! Any failure in 1–6 exits non-zero before the listener exists, so the
 //! process can never look healthy after a failed initialisation.
+
+mod diagnostics;
 
 use std::net::SocketAddr;
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
 use solprint_api::{AppState, BuildInfo};
 use solprint_config::Config;
+use solprint_gateway::{Gateway, GatewaySettings};
 use solprint_storage::Database;
 use tokio::net::TcpListener;
 use tokio::time::Instant;
@@ -35,6 +43,13 @@ fn main() -> ExitCode {
     // curl/wget/shell. Reads only APP_PORT; never loads secrets.
     if std::env::args().nth(1).as_deref() == Some("healthcheck") {
         return healthcheck();
+    }
+    // `solprint gateway-diagnostics [--live]`: offline configuration report;
+    // with `--live`, a small, bounded, read-only provider check.
+    if std::env::args().nth(1).as_deref() == Some("gateway-diagnostics") {
+        let live = std::env::args().skip(2).any(|a| a == "--live");
+        let fallback = std::env::args().skip(2).any(|a| a == "--include-fallback");
+        return diagnostics::run(live, fallback);
     }
 
     // Configuration errors are reported before logging exists, on stderr,
@@ -105,11 +120,24 @@ async fn run(config: Config) -> anyhow::Result<()> {
         "instance registered"
     );
 
+    let gateway = Gateway::new(
+        GatewaySettings::from_config(&config),
+        Arc::new(database.clone()),
+    )
+    .context("GATEWAY initialisation failed")?;
+    let gateway_shutdown = CancellationToken::new();
+    let gateway_task = gateway.start(gateway_shutdown.clone());
+
     let addr = SocketAddr::new(config.app.host, config.app.port);
     let listener = TcpListener::bind(addr)
         .await
         .with_context(|| format!("could not bind {addr}"))?;
-    let state = AppState::new(&config, database.clone(), BuildInfo::current(VERSION));
+    let state = AppState::new(
+        &config,
+        database.clone(),
+        gateway.clone(),
+        BuildInfo::current(VERSION),
+    );
 
     let shutdown = CancellationToken::new();
     let server = tokio::spawn(solprint_api::serve(listener, state, shutdown.clone()));
@@ -140,6 +168,15 @@ async fn run(config: Config) -> anyhow::Result<()> {
         }
     }
 
+    // Stop GATEWAY after HTTP has drained; its task runs a final flush so
+    // credits used by this process reach the ledger.
+    gateway_shutdown.cancel();
+    if tokio::time::timeout(SHUTDOWN_GRACE, gateway_task)
+        .await
+        .is_err()
+    {
+        tracing::warn!("GATEWAY final flush timed out");
+    }
     database.close().await;
     Ok(())
 }
