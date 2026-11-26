@@ -461,15 +461,13 @@ function ProviderRow({ p }: { p: GatewayProvider }) {
         />
       </Td>
       <Td className="hidden md:table-cell">
-        <StatusIndicator
-          tone={c.tone}
-          label={c.label}
-          detail={
-            p.circuit.retry_in_ms !== null
-              ? `retry ${formatDuration(p.circuit.retry_in_ms / 1_000)}`
-              : undefined
-          }
-        />
+        <StatusIndicator tone={c.tone} label={c.label} />
+        {/* Own line, so an open circuit does not widen the table past its panel. */}
+        {p.circuit.retry_in_ms !== null ? (
+          <span className="num block text-xs text-fg-muted">
+            retry {formatDuration(p.circuit.retry_in_ms / 1_000)}
+          </span>
+        ) : null}
       </Td>
       <Td numeric className="hidden lg:table-cell">
         {p.lane ? `${n(p.lane.in_flight)} / ${n(p.lane.max_in_flight)}` : '—'}
