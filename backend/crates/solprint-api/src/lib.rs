@@ -8,10 +8,19 @@
 //! | GET    | `/health/ready`          | readiness incl. PostgreSQL (200 / 503)    |
 //! | GET    | `/api/v1/system/status`  | actual operating state                    |
 //! | GET    | `/api/v1/system/version` | version and safe build metadata           |
+//! | GET    | `/api/v1/gateway/status`    | GATEWAY overview                       |
+//! | GET    | `/api/v1/gateway/providers` | per-provider health, limits, traffic   |
+//! | GET    | `/api/v1/gateway/usage`     | process totals and stored hourly usage |
+//! | GET    | `/api/v1/gateway/metrics`   | per-operation counts and latency       |
+//! | GET    | `/api/v1/gateway/budgets`   | Helius credit budget                   |
+//! | GET    | `/api/v1/gateway/streams`   | WebSocket stream state, checkpoints    |
+//! | GET    | `/api/v1/gateway/cache`     | response cache statistics              |
 //!
-//! None of these endpoints contacts an external provider.
+//! None of these endpoints contacts an external provider: GATEWAY endpoints
+//! read only in-memory state and stored aggregates.
 
 pub mod contracts;
+mod gateway_routes;
 mod middleware;
 mod state;
 
@@ -45,6 +54,13 @@ pub fn router(state: AppState) -> Router {
         .route("/health/ready", get(ready))
         .route("/api/v1/system/status", get(system_status))
         .route("/api/v1/system/version", get(system_version))
+        .route("/api/v1/gateway/status", get(gateway_routes::status))
+        .route("/api/v1/gateway/providers", get(gateway_routes::providers))
+        .route("/api/v1/gateway/usage", get(gateway_routes::usage))
+        .route("/api/v1/gateway/metrics", get(gateway_routes::metrics))
+        .route("/api/v1/gateway/budgets", get(gateway_routes::budgets))
+        .route("/api/v1/gateway/streams", get(gateway_routes::streams))
+        .route("/api/v1/gateway/cache", get(gateway_routes::cache))
         .fallback(middleware::not_found)
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(limits.body_limit_bytes))
@@ -142,7 +158,7 @@ async fn system_status(State(state): State<AppState>) -> axum::Json<SystemStatus
             migrations_expected: u32::try_from(solprint_storage::MIGRATOR.iter().count())
                 .unwrap_or(u32::MAX),
         },
-        providers: state.providers().to_vec(),
+        providers: state.providers(),
     })
 }
 

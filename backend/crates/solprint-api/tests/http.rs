@@ -15,6 +15,7 @@ use http_body_util::BodyExt;
 use serde_json::Value;
 use solprint_api::{AppState, BuildInfo, router};
 use solprint_config::Config;
+use solprint_gateway::{Gateway, GatewaySettings, MemoryStore};
 use solprint_storage::Database;
 use solprint_storage::test_support::TestDatabase;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -47,7 +48,17 @@ fn offline_state() -> AppState {
     let mut db_cfg = cfg.database.clone();
     db_cfg.acquire_timeout = Duration::from_millis(300);
     let db = Database::connect_lazy(&db_cfg).unwrap();
-    AppState::new(&cfg, db, BuildInfo::current("0.1.0-test"))
+    AppState::new(&cfg, db, gateway(&cfg), BuildInfo::current("0.1.0-test"))
+}
+
+/// GATEWAY built from configuration; it contacts nothing unless asked, and
+/// no test here asks.
+fn gateway(cfg: &Config) -> Gateway {
+    Gateway::new(
+        GatewaySettings::from_config(cfg),
+        std::sync::Arc::new(MemoryStore::default()),
+    )
+    .unwrap()
 }
 
 async fn call(state: AppState, req: Request<Body>) -> (StatusCode, axum::http::HeaderMap, Value) {
@@ -98,11 +109,12 @@ async fn system_status_reports_truthful_state() {
     assert_eq!(body["trading"]["execution_capability"], "NONE");
     assert_eq!(body["database"]["status"], "UNAVAILABLE");
     assert!(body["database"]["migrations_applied"].is_null());
-    assert_eq!(body["database"]["migrations_expected"], 1);
+    assert_eq!(body["database"]["migrations_expected"], 2);
     let providers = body["providers"].as_array().unwrap();
     assert_eq!(providers.len(), 4);
     for p in providers {
-        assert_eq!(p["state"], "NOT_INITIALIZED", "{p}");
+        // Health comes from real traffic only; none has happened.
+        assert_eq!(p["state"], "UNKNOWN", "{p}");
         assert!(p["last_checked_at"].is_null(), "{p}");
     }
     assert_eq!(providers[0]["id"], "HELIUS");
@@ -198,6 +210,13 @@ async fn no_endpoint_leaks_synthetic_secrets() {
         "/health/ready",
         "/api/v1/system/status",
         "/api/v1/system/version",
+        "/api/v1/gateway/status",
+        "/api/v1/gateway/providers",
+        "/api/v1/gateway/usage",
+        "/api/v1/gateway/metrics",
+        "/api/v1/gateway/budgets",
+        "/api/v1/gateway/streams",
+        "/api/v1/gateway/cache",
         "/does-not-exist",
     ] {
         let res = router(offline_state()).oneshot(get(path)).await.unwrap();
@@ -251,7 +270,12 @@ async fn readiness_tracks_real_database_availability() {
     let db = Database::connect(&tdb.config()).await.unwrap();
     db.migrate().await.unwrap();
     let cfg = config(tdb.config().url.expose().as_str());
-    let state = AppState::new(&cfg, db.clone(), BuildInfo::current("0.1.0-test"));
+    let state = AppState::new(
+        &cfg,
+        db.clone(),
+        gateway(&cfg),
+        BuildInfo::current("0.1.0-test"),
+    );
 
     let (status, _, body) = call(state.clone(), get("/health/ready")).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -269,4 +293,56 @@ async fn readiness_tracks_real_database_availability() {
     let (status, _, _) = call(state, get("/health/live")).await;
     assert_eq!(status, StatusCode::OK);
     db.close().await;
+}
+
+#[tokio::test]
+async fn gateway_endpoints_report_local_state_only() {
+    let state = offline_state();
+    let (status, _, body) = call(state.clone(), get("/api/v1/gateway/status")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["enabled"], true);
+    assert_eq!(body["execution_capability"], "NONE");
+    assert_eq!(body["providers"].as_array().unwrap().len(), 4);
+    assert_eq!(body["budget"]["state"], "ACCOUNT_USAGE_UNKNOWN");
+    assert_eq!(body["streams"]["enabled"], false);
+    assert_eq!(
+        body["streams"]["disabled_reason"],
+        "GATEWAY_STREAMS_ENABLED=false"
+    );
+    assert!(body["streams"]["state"].is_null());
+
+    let (_, _, providers) = call(state.clone(), get("/api/v1/gateway/providers")).await;
+    for p in providers["providers"].as_array().unwrap() {
+        assert_eq!(p["health"]["state"], "UNKNOWN", "{p}");
+        assert!(p["health"]["last_success_at"].is_null());
+        assert_eq!(p["traffic"]["requests"], 0);
+        assert!(p["latency"]["p50_us"].is_null(), "nothing measured: {p}");
+    }
+
+    let (_, _, budgets) = call(state.clone(), get("/api/v1/gateway/budgets")).await;
+    let b = &budgets["budgets"][0];
+    assert_eq!(b["provider"], "HELIUS");
+    assert_eq!(b["credit_limit"], 1_000_000);
+    assert_eq!(b["reserve_credits"], 200_000);
+    assert_eq!(b["ledger_loaded"], false);
+    assert_eq!(b["denied_by_priority"].as_array().unwrap().len(), 6);
+
+    // The database is down: stored history is reported unavailable, not empty.
+    let (status, _, usage) = call(state.clone(), get("/api/v1/gateway/usage?hours=500")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        usage["history_available"], true,
+        "memory store is reachable"
+    );
+    let (_, _, streams) = call(state.clone(), get("/api/v1/gateway/streams")).await;
+    assert!(streams["connection"].is_null());
+    let (_, _, cache) = call(state, get("/api/v1/gateway/cache")).await;
+    assert_eq!(cache["entries"], 0);
+}
+
+#[tokio::test]
+async fn gateway_usage_rejects_malformed_queries() {
+    let (status, _, body) = call(offline_state(), get("/api/v1/gateway/usage?hours=abc")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"]["code"], "BAD_REQUEST");
 }

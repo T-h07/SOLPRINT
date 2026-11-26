@@ -5,11 +5,12 @@ use std::time::Duration;
 
 use solprint_config::Config;
 use solprint_core::UtcTimestamp;
+use solprint_gateway::Gateway;
 use solprint_storage::Database;
 use tokio::time::Instant;
 
 use crate::contracts::{
-    CredentialState, ExecutionCapability, ProviderId, ProviderState, ProviderStatus,
+    CredentialState, ExecutionCapability, GatewayHealthState, ProviderId, ProviderStatus,
     TradingModeDto, TradingState,
 };
 
@@ -54,6 +55,7 @@ struct Inner {
     trading: TradingState,
     providers: Vec<ProviderStatus>,
     database: Database,
+    gateway: Gateway,
     started_at: UtcTimestamp,
     started_instant: Instant,
     http: HttpLimits,
@@ -65,7 +67,7 @@ pub struct AppState(Arc<Inner>);
 
 impl AppState {
     #[must_use]
-    pub fn new(config: &Config, database: Database, build: BuildInfo) -> Self {
+    pub fn new(config: &Config, database: Database, gateway: Gateway, build: BuildInfo) -> Self {
         let credential = |configured: bool| {
             if configured {
                 CredentialState::Configured
@@ -77,7 +79,7 @@ impl AppState {
             id,
             name: name.to_owned(),
             role: role.to_owned(),
-            state: ProviderState::NotInitialized,
+            state: GatewayHealthState::Unknown,
             credential,
             last_checked_at: None,
         };
@@ -122,6 +124,7 @@ impl AppState {
             trading,
             providers,
             database,
+            gateway,
             started_at: UtcTimestamp::now(),
             started_instant: Instant::now(),
             http: HttpLimits {
@@ -152,8 +155,41 @@ impl AppState {
     }
 
     #[must_use]
-    pub fn providers(&self) -> &[ProviderStatus] {
-        &self.0.providers
+    pub fn gateway(&self) -> &Gateway {
+        &self.0.gateway
+    }
+
+    /// Static provider facts merged with GATEWAY's measured health.
+    #[must_use]
+    pub fn providers(&self) -> Vec<ProviderStatus> {
+        let snapshot = self.0.gateway.snapshot();
+        self.0
+            .providers
+            .iter()
+            .map(|p| {
+                let mut p = p.clone();
+                if let Some(live) = snapshot
+                    .providers
+                    .iter()
+                    .find(|s| crate::gateway_routes::provider_id(s.provider) == p.id)
+                {
+                    p.state = crate::gateway_routes::health_state(live.health.state);
+                    let h = &live.health;
+                    p.last_checked_at = match (h.last_success_at, h.last_failure_at) {
+                        (Some(a), Some(b)) => {
+                            Some(if a.as_offset_datetime() >= b.as_offset_datetime() {
+                                a
+                            } else {
+                                b
+                            })
+                        }
+                        (a, b) => a.or(b),
+                    }
+                    .map(|t| t.to_rfc3339());
+                }
+                p
+            })
+            .collect()
     }
 
     #[must_use]
