@@ -31,8 +31,9 @@ apply to every future module.
 
 ## Time
 
-* All timestamps are UTC, RFC 3339, millisecond precision, `Z` suffix
-  (`2026-11-26T12:00:00.000Z`).
+* All timestamps are UTC, RFC 3339, millisecond precision (truncated), `Z` suffix
+  (`2026-11-26T12:00:00.000Z`), via `solprint_core::UtcTimestamp` (built on the `time`
+  crate; `chrono` is not used because it is flagged unmaintained, RUSTSEC-2026-0543).
 * Events carry three timestamps: `source_at` (when the source says it happened),
   `observed_at` (when SOLPRINT received it), `processed_at` (when it was processed).
   They are never collapsed into one.

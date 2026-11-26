@@ -9,11 +9,12 @@ publish.workspace = true
 
 [dependencies]
 solprint-config.workspace = true
-sqlx = { workspace = true, features = ["runtime-tokio", "tls-none", "postgres", "migrate", "macros", "chrono", "uuid"] }
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-none", "postgres", "migrate", "macros", "time", "uuid"] }
 tokio = { workspace = true, features = ["time"] }
 tracing.workspace = true
 thiserror.workspace = true
-chrono = { workspace = true, features = ["std", "clock"] }
+solprint-core.workspace = true
+time = { workspace = true, features = ["std"] }
 
 # Optional helpers for integration tests in this and downstream crates.
 # Never enabled by the application binary.

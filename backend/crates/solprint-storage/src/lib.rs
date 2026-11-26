@@ -12,8 +12,8 @@
 
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
 use solprint_config::DatabaseConfig;
+use solprint_core::UtcTimestamp;
 use sqlx::migrate::Migrator;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use sqlx::types::Uuid;
@@ -69,7 +69,7 @@ pub enum DatabaseHealth {
 #[derive(Debug, Clone)]
 pub struct InstanceRecord {
     pub instance_id: Uuid,
-    pub created_at: DateTime<Utc>,
+    pub created_at: UtcTimestamp,
     pub start_count: i64,
 }
 
@@ -219,7 +219,7 @@ impl Database {
         .map_err(|e| StorageError::from_sqlx(&e))?;
         Ok(InstanceRecord {
             instance_id: row.get("instance_id"),
-            created_at: row.get("created_at"),
+            created_at: UtcTimestamp::from_offset_datetime(row.get("created_at")),
             start_count: row.get("start_count"),
         })
     }

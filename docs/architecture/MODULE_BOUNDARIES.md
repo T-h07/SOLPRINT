@@ -7,7 +7,7 @@
 | `solprint-core` | — |
 | `solprint-config` | core |
 | `solprint-observability` | config |
-| `solprint-storage` | config |
+| `solprint-storage` | core, config |
 | `solprint-api` | core, config, observability, storage |
 | `solprint-app` | api, config, observability, storage |
 

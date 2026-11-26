@@ -10,7 +10,8 @@ publish.workspace = true
 [dependencies]
 solprint-config.workspace = true
 tracing.workspace = true
-tracing-subscriber = { workspace = true, features = ["std", "fmt", "ansi", "env-filter", "json", "chrono", "smallvec"] }
+tracing-subscriber = { workspace = true, features = ["std", "fmt", "ansi", "env-filter", "json", "time", "smallvec"] }
+time = { workspace = true, features = ["std", "formatting", "macros"] }
 thiserror.workspace = true
 
 [lints]

@@ -9,8 +9,9 @@
 //!   route, status and latency only: never headers, query strings or bodies.
 
 use solprint_config::{LogConfig, LogFormat};
+use time::macros::format_description;
 use tracing_subscriber::EnvFilter;
-use tracing_subscriber::fmt::time::ChronoUtc;
+use tracing_subscriber::fmt::time::UtcTime;
 
 /// Header carrying the request correlation identifier.
 pub const REQUEST_ID_HEADER: &str = "x-request-id";
@@ -40,7 +41,9 @@ pub fn filter_directive(config: &LogConfig) -> String {
 pub fn init(config: &LogConfig) -> Result<(), ObservabilityError> {
     let filter =
         EnvFilter::try_new(filter_directive(config)).map_err(|_| ObservabilityError::Filter)?;
-    let timer = ChronoUtc::new("%Y-%m-%dT%H:%M:%S%.3fZ".to_owned());
+    let timer = UtcTime::new(format_description!(
+        "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3]Z"
+    ));
     let builder = tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_timer(timer)

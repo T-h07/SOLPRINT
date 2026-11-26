@@ -33,7 +33,7 @@ wallets/keys/signing, authentication, public deployment.
 | Suite | Result |
 |---|---|
 | `cargo fmt --check`, `cargo clippy -D warnings` | pass |
-| Backend tests incl. PostgreSQL (`scripts/test.ps1`) | 69 passed (core 23, config 8, observability 1, api 20 + 12 HTTP, storage 5 DB) |
+| Backend tests incl. PostgreSQL (`scripts/test.ps1`) | 70 passed (core 24, config 8, observability 1, api 20 + 12 HTTP, storage 5 DB) |
 | Frontend format, typecheck, lint, build | pass |
 | Frontend unit (Vitest) | 29 passed |
 | Playwright `ui` (mocked; states, keyboard, axe WCAG 2.2 AA, overflow at 5 viewports) | 27 passed |
@@ -76,7 +76,7 @@ is reachable; container images backend 123 MB, frontend 91.4 MB; idle memory bac
 | P00-T03 | Cargo workspace builds successfully | PASS | debug and release builds, Docker build |
 | P00-T04 | Rust formatting checks pass | PASS | `cargo fmt --check` |
 | P00-T05 | Clippy passes without warnings | PASS | `clippy --all-targets --all-features -D warnings` |
-| P00-T06 | Backend unit tests pass | PASS | 64 unit/HTTP tests |
+| P00-T06 | Backend unit tests pass | PASS | 65 unit/HTTP tests |
 | P00-T07 | Backend integration tests pass | PASS | 5 PostgreSQL tests on a disposable server |
 | P00-T08 | Frontend dependencies install reproducibly | PASS | `npm ci` from lockfile (host, Docker build, Playwright container) |
 | P00-T09 | TypeScript strict type checking passes | PASS | `tsc -b` (strict, `exactOptionalPropertyTypes`) |

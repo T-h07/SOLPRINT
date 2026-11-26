@@ -11,33 +11,54 @@
 
 use std::fmt;
 
-use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use time::format_description::BorrowedFormatItem;
+use time::format_description::well_known::Rfc3339;
+use time::macros::format_description;
+use time::{OffsetDateTime, UtcOffset};
+
+/// `2026-11-26T12:00:00.123Z`: fixed width, millisecond precision (truncated),
+/// always UTC with a literal `Z`.
+const RFC3339_MILLIS_Z: &[BorrowedFormatItem<'static>] =
+    format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3]Z");
 
 /// A UTC wall-clock instant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct UtcTimestamp(DateTime<Utc>);
+pub struct UtcTimestamp(OffsetDateTime);
 
 impl UtcTimestamp {
     #[must_use]
     pub fn now() -> Self {
-        Self(Utc::now())
+        Self(OffsetDateTime::now_utc())
+    }
+
+    /// Wraps any instant, normalising its offset to UTC.
+    #[must_use]
+    pub fn from_offset_datetime(value: OffsetDateTime) -> Self {
+        Self(value.to_offset(UtcOffset::UTC))
     }
 
     #[must_use]
-    pub const fn from_datetime(value: DateTime<Utc>) -> Self {
-        Self(value)
-    }
-
-    #[must_use]
-    pub const fn as_datetime(&self) -> &DateTime<Utc> {
+    pub const fn as_offset_datetime(&self) -> &OffsetDateTime {
         &self.0
+    }
+
+    /// Parses any RFC 3339 timestamp (any offset) into UTC.
+    ///
+    /// # Errors
+    /// Returns an error if `raw` is not valid RFC 3339.
+    pub fn parse_rfc3339(raw: &str) -> Result<Self, time::error::Parse> {
+        OffsetDateTime::parse(raw, &Rfc3339).map(Self::from_offset_datetime)
     }
 
     /// RFC 3339, millisecond precision, `Z` suffix.
     #[must_use]
     pub fn to_rfc3339(&self) -> String {
-        self.0.to_rfc3339_opts(SecondsFormat::Millis, true)
+        // Only years outside 0000..=9999 can fail to format; those cannot
+        // come from the system clock, PostgreSQL `timestamptz` or RFC 3339.
+        self.0
+            .format(RFC3339_MILLIS_Z)
+            .unwrap_or_else(|_| String::from("invalid-timestamp"))
     }
 }
 
@@ -56,9 +77,7 @@ impl Serialize for UtcTimestamp {
 impl<'de> Deserialize<'de> for UtcTimestamp {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let raw = String::deserialize(deserializer)?;
-        DateTime::parse_from_rfc3339(&raw)
-            .map(|dt| Self(dt.with_timezone(&Utc)))
-            .map_err(serde::de::Error::custom)
+        Self::parse_rfc3339(&raw).map_err(serde::de::Error::custom)
     }
 }
 
@@ -81,17 +100,23 @@ mod tests {
 
     #[test]
     fn serializes_as_utc_rfc3339_millis() {
-        let ts = UtcTimestamp::from_datetime(
-            DateTime::parse_from_rfc3339("2026-11-26T12:00:00.123456+02:00")
-                .unwrap()
-                .with_timezone(&Utc),
-        );
+        let ts = UtcTimestamp::parse_rfc3339("2026-11-26T12:00:00.123456+02:00").unwrap();
         assert_eq!(
             serde_json::to_string(&ts).unwrap(),
             "\"2026-11-26T10:00:00.123Z\""
         );
         let back: UtcTimestamp = serde_json::from_str("\"2026-11-26T10:00:00.123Z\"").unwrap();
         assert_eq!(back.to_rfc3339(), "2026-11-26T10:00:00.123Z");
+    }
+
+    #[test]
+    fn keeps_fixed_width_and_utc() {
+        let ts = UtcTimestamp::parse_rfc3339("2026-01-02T03:04:05Z").unwrap();
+        assert_eq!(ts.to_rfc3339(), "2026-01-02T03:04:05.000Z");
+        let late = UtcTimestamp::parse_rfc3339("2026-12-31T23:30:00.999999-01:00").unwrap();
+        assert_eq!(late.to_rfc3339(), "2027-01-01T00:30:00.999Z");
+        assert!(UtcTimestamp::parse_rfc3339("2026-11-26 12:00:00").is_err());
+        assert!(serde_json::from_str::<UtcTimestamp>("\"not a time\"").is_err());
     }
 
     #[test]

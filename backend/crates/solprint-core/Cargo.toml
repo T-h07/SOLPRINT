@@ -10,7 +10,7 @@ publish.workspace = true
 [dependencies]
 serde.workspace = true
 thiserror.workspace = true
-chrono = { workspace = true, features = ["std", "clock", "serde"] }
+time = { workspace = true, features = ["std", "formatting", "parsing", "macros"] }
 uuid = { workspace = true, features = ["std", "v7", "serde"] }
 rust_decimal = { workspace = true, features = ["std", "serde-str"] }
 bs58 = { workspace = true, features = ["std"] }
