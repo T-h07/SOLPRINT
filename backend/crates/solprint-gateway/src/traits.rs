@@ -14,9 +14,10 @@ use crate::context::{GatewayResponse, RequestContext};
 use crate::error::GatewayError;
 use crate::gateway::Gateway;
 use crate::models::{
-    AccountData, BlockSummary, DexBoost, DexPair, DexProfile, JupiterPrice, LargestTokenAccount, NodeHealth, NodeVersion,
-    QuoteRequest, SignaturePage, SignatureQuery, SignatureStatus, SwapQuote, TokenAccount,
-    TokenAccountFilter, TokenCategory, TokenInfo, TokenInterval, TransactionRecord,
+    AccountData, BlockSummary, DexBoost, DexPair, DexProfile, JupiterPrice, LargestTokenAccount,
+    NodeHealth, NodeVersion, QuoteRequest, SignaturePage, SignatureQuery, SignatureStatus,
+    SwapQuote, TokenAccount, TokenAccountFilter, TokenCategory, TokenInfo, TokenInterval,
+    TransactionRecord,
 };
 use crate::stream::{StreamHandle, StreamSnapshot, SubscriptionId, SubscriptionSpec};
 
@@ -160,7 +161,8 @@ pub trait MarketDiscoveryProvider: Send + Sync {
         limit: u16,
     ) -> impl Future<Output = R<Vec<TokenInfo>>> + Send;
     /// Jupiter Tokens V2 `/recent` (first pool recently created).
-    fn recent_tokens(&self, ctx: &RequestContext) -> impl Future<Output = R<Vec<TokenInfo>>> + Send;
+    fn recent_tokens(&self, ctx: &RequestContext)
+    -> impl Future<Output = R<Vec<TokenInfo>>> + Send;
     /// DEX Screener latest token profiles (disabled unless
     /// `DEXSCREENER_DISCOVERY_ENABLED=true`).
     fn latest_profiles(
@@ -169,8 +171,11 @@ pub trait MarketDiscoveryProvider: Send + Sync {
     ) -> impl Future<Output = R<Vec<DexProfile>>> + Send;
     /// DEX Screener boosts: **paid promotion** (disabled unless
     /// `DEXSCREENER_DISCOVERY_ENABLED=true`).
-    fn boosts(&self, ctx: &RequestContext, top: bool)
-    -> impl Future<Output = R<Vec<DexBoost>>> + Send;
+    fn boosts(
+        &self,
+        ctx: &RequestContext,
+        top: bool,
+    ) -> impl Future<Output = R<Vec<DexBoost>>> + Send;
 }
 
 /// Quote only. There is deliberately no method that returns, builds or

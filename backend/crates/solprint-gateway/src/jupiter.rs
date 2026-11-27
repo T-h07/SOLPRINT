@@ -751,7 +751,10 @@ mod tests {
         assert_eq!(h1.buy_volume.unwrap().to_string(), "1234.5");
         assert_eq!(h1.sell_volume, None, "missing is unknown, not zero");
         assert!(d.stats_24h.is_none());
-        assert!(t[1].discovery.first_pool.is_none(), "invalid pool ids are dropped");
+        assert!(
+            t[1].discovery.first_pool.is_none(),
+            "invalid pool ids are dropped"
+        );
     }
 
     #[test]

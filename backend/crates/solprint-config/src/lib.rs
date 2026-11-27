@@ -782,8 +782,18 @@ fn read_radar<F: Fn(&str) -> Option<String>>(
     let enabled = r.bool("RADAR_ENABLED", true);
     let auto = r.bool("RADAR_AUTO_DISCOVERY_ENABLED", false);
     let discovery = r.range("RADAR_MARKET_DISCOVERY_INTERVAL_SECS", 300, 60, 86_400);
-    let reeval = r.range("RADAR_CANDIDATE_REEVALUATION_INTERVAL_SECS", 900, 60, 86_400);
-    let maint = r.range("RADAR_REGISTRY_MAINTENANCE_INTERVAL_SECS", 3_600, 60, 86_400);
+    let reeval = r.range(
+        "RADAR_CANDIDATE_REEVALUATION_INTERVAL_SECS",
+        900,
+        60,
+        86_400,
+    );
+    let maint = r.range(
+        "RADAR_REGISTRY_MAINTENANCE_INTERVAL_SECS",
+        3_600,
+        60,
+        86_400,
+    );
     let markets = r.range("RADAR_MAX_MARKET_TARGETS", 100, 1, 1_000);
     let active_markets = r.range("RADAR_MAX_ACTIVE_MARKET_TARGETS", 20, 1, 200);
     if active_markets > markets {
