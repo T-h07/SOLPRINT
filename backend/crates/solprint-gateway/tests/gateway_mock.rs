@@ -763,3 +763,55 @@ async fn jupiter_endpoints_share_one_rate_group() {
     assert!(g.jupiter_quote(&short, &quote_req()).await.is_err());
     assert_eq!(mock.hits(), hits, "no request during the shared cooldown");
 }
+
+#[tokio::test]
+async fn signature_statuses_keep_order_and_null_means_unknown() {
+    use solprint_core::{CommitmentLevel, TransactionSignature};
+    let (g, _s, mock) = helius(|r| {
+        rpc_result(
+            r,
+            &json!({"context": {"slot": 500}, "value": [
+                {"slot": 410, "confirmations": null, "err": null, "confirmationStatus": "finalized", "status": {"Ok": null}},
+                null,
+                {"slot": 499, "confirmations": 1, "err": {"InstructionError": [0, {"Custom": 1}]}, "confirmationStatus": "confirmed", "status": {"Err": {}}}
+            ]}),
+        )
+    })
+    .await;
+    let sig = |c: char| TransactionSignature::parse(&c.to_string().repeat(88)).unwrap();
+    let sigs = [sig('2'), sig('3'), sig('4')];
+    let r = g
+        .get_signature_statuses(&ctx(Priority::P4), &sigs, false)
+        .await
+        .unwrap();
+    assert_eq!(r.value.len(), 3);
+    let first = r.value[0].as_ref().unwrap();
+    assert_eq!(first.slot, 410);
+    assert_eq!(first.confirmation_status, Some(CommitmentLevel::Finalized));
+    assert!(!first.failed);
+    assert!(
+        r.value[1].is_none(),
+        "null stays unknown, never dropped/failed"
+    );
+    let third = r.value[2].as_ref().unwrap();
+    assert!(third.failed);
+    assert_eq!(third.confirmations, Some(1));
+    assert_eq!(r.credits_charged, 1);
+    let req = &mock.requests()[0];
+    assert_eq!(rpc_method(req), "getSignatureStatuses");
+    assert!(
+        String::from_utf8_lossy(&req.body).contains("searchTransactionHistory"),
+        "config object always sent"
+    );
+
+    // Not cached: a second call is a second request.
+    g.get_signature_statuses(&ctx(Priority::P4), &sigs, false)
+        .await
+        .unwrap();
+    assert_eq!(mock.hits(), 2);
+    assert!(
+        g.get_signature_statuses(&ctx(Priority::P4), &[], false)
+            .await
+            .is_err()
+    );
+}
