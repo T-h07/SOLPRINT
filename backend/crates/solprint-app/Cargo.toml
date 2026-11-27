@@ -19,6 +19,7 @@ solprint-observability.workspace = true
 solprint-gateway.workspace = true
 solprint-core.workspace = true
 solprint-data-engine.workspace = true
+solprint-radar.workspace = true
 serde_json.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
