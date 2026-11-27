@@ -137,7 +137,7 @@ No criterion claims verification against a live provider.
 | ID | Criterion | Status | Evidence |
 |---|---|---|---|
 | P02-T01 | Correct feature branch is active | PASS | Work is committed on top of `develop` (`54c0f92`) and published as `origin/feature/02-data-engine`. It was developed in an isolated worktree because `feature/02-data-engine` is checked out in the main checkout |
-| P02-T02 | Phase 00 and Phase 01 regressions pass | NOT RUN | Pending `verify.ps1`: all Phase 00/01 Rust, Vitest, Playwright ui/visual/e2e and smoke checks ([Verification log](#verification-log)) |
+| P02-T02 | Phase 00 and Phase 01 regressions pass | PASS | All Phase 00/01 Rust, Vitest, Playwright ui/visual/e2e and smoke checks pass in `verify.ps1` on `5631df8` ([Verification log](#verification-log)) |
 | P02-T03 | Data Engine module boundaries are documented | PASS | [MODULE_BOUNDARIES.md](../architecture/MODULE_BOUNDARIES.md) rule 7 and the dependency table; [DATA_ENGINE.md](../architecture/DATA_ENGINE.md#module-layout) |
 | P02-T04 | All external communication uses GATEWAY | PASS | The engine depends only on the `ChainSource` trait, implemented by `GatewaySource` over `solprint_gateway::Gateway` (`source.rs`). `solprint-data-engine/Cargo.toml` has no HTTP or WebSocket client |
 | P02-T05 | Explicit ingestion targets are supported | PASS | `de_targets` and `solprint data-engine targets add/enable/disable`. None are created automatically. Live intake subscribes only to enabled targets, bounded by `DATA_ENGINE_MAX_ACTIVE_TARGETS`. `engine_db::stream_gaps_stay_visible_and_live_logs_become_jobs` uses a target |
@@ -252,13 +252,13 @@ No criterion claims verification against a live provider.
 | ID | Criterion | Status | Evidence |
 |---|---|---|---|
 | P02-T86 | Existing `.env` and database data are preserved | PASS | `.env` was never read or modified; only key names were added to `.env.example`. Every database test uses a disposable container. The schema change is a new forward-only migration |
-| P02-T87 | Secret scanning and dependency audits pass | NOT RUN | `verify.ps1`: secret scan, cargo deny (advisories, bans, licences, sources), npm audit ([Verification log](#verification-log)) |
+| P02-T87 | Secret scanning and dependency audits pass | PASS | `verify.ps1`: secret scan, cargo deny (advisories, bans, licences, sources), npm audit ([Verification log](#verification-log)) |
 | P02-T88 | Malformed transaction data cannot crash normal processing | PASS | Property tests (`evidence::arbitrary_text_never_panics`, `borsh::never_panics_on_arbitrary_input`); `engine_db::invalid_evidence_is_quarantined_and_slot_mismatch_is_not_orphaned` (quarantined, workers continue) |
 | P02-T89 | External API consumption remains controlled by GATEWAY | PASS | Budget admission and priorities for every fetch, finality and backfill call. The smoke check `data engine endpoints answer from local state without provider traffic` passes. The CLI and diagnostics contact a provider only with `--live` / `-Live` |
 | P02-T90 | Live execution remains impossible | PASS | Live trading is rejected by configuration. GATEWAY refuses transaction-sending methods. The engine has no signing or wallet code, and the `deny.toml` bans pass. `/api/v1/data/status` reports `execution_capability: NONE` (smoke, e2e) |
 | P02-T91 | Real-provider diagnostics are accurately reported | NOT RUN | No live diagnostic was run; it needs the owner's opt-in (Owner actions 2). Nothing in this document is a live measurement |
-| P02-T92 | Complete local verification passes | NOT RUN | `check.ps1`, `test.ps1`, Playwright ui and visual ([Verification log](#verification-log)) |
-| P02-T93 | Isolated clean-checkout verification passes | NOT RUN | `verify.ps1` full mode on the candidate commit ([Verification log](#verification-log)) |
+| P02-T92 | Complete local verification passes | PASS | `check.ps1`, `test.ps1`, Playwright ui and visual ([Verification log](#verification-log)) |
+| P02-T93 | Isolated clean-checkout verification passes | PASS | `verify.ps1` full mode on the candidate commit ([Verification log](#verification-log)) |
 | P02-T94 | Documentation is complete and accurate | PASS | See "What was built" → Docs |
 | P02-T95 | No hosted CI/CD is introduced | PASS | No `.github/` directory; verification is local only |
 | P02-T96 | No future-phase intelligence functionality is prematurely implemented | PASS | No ranking, scoring, clustering, signals, token analysis or execution. Attribution is per swap only. Outbox events are published for later consumers, but no consumer module exists |
@@ -266,3 +266,20 @@ No criterion claims verification against a live provider.
 ## Verification log
 
 Entries are added when a run completes, with the exact commit it verified.
+
+### 2026-11-27 — `verify.ps1` (full mode) on `5631df8aaab6fb7b9b1d24b94ebe6606be5ba4d4`
+
+Toolchain: rustc 1.99.1, Node v24.19.0, Docker 29.9.3; Windows 11. Duration 604 s.
+Exit code 0, `VERIFY PASSED (full gate)`. All 18 checks PASS:
+
+- secret scans (revision, staged changes and full history) and hadolint;
+- `check.ps1`: Rust 276 and Vitest 43;
+- the production bundle excludes fixtures and the showcase;
+- `test.ps1`: Rust 300, including the 15 Data Engine PostgreSQL tests;
+- cargo deny (advisories, bans, licences, sources) and npm audit;
+- Playwright ui 56 and visual 37 (the Phase 02 baselines are candidates; see P02-T85);
+- clean image builds, container hardening, smoke test and e2e 6 against the isolated
+  stack;
+- no configured secret in the container logs.
+
+Commits after `5631df8` change this document only.
