@@ -41,11 +41,11 @@ document, with the exact commit they apply to.
   loopback mocks built from the documented contracts. The bounded live check
   (`gateway-diagnostics.ps1 -Live`) needs the owner's explicit opt-in and has not been
   run (P01-T54).
-* **Visual baselines are candidates.** The 9 Gateway baselines and the 12 updated
+* **Visual baselines approved.** The 9 Gateway baselines and the 12 updated
   Overview/System baselines (provider health now reads "Not measured") were generated
   with `./scripts/playwright.ps1 -Project visual -UpdateSnapshots` on 2026-11-26 at the
-  owner's request and inspected. They remain candidates until the owner approves them
-  (P01-T70). `verify.ps1` on `696438e` passes the visual check against them.
+  owner's request, inspected, and approved by the owner on 2026-11-27 (P01-T70).
+  `verify.ps1` on `696438e` passes the visual check against them.
 * The advisory checks (cargo deny, npm audit) need network access to fetch their
   databases; without it they fail rather than pass silently.
 * Recovery covers `logs` subscriptions only; other subscription kinds report
@@ -60,10 +60,8 @@ document, with the exact commit they apply to.
 1. **Rotate the Helius and Jupiter credentials.** They were exposed in an earlier
    conversation and rotation has not been independently confirmed. Update `.env`
    yourself; never paste keys into a conversation.
-2. Review the Gateway workspace and approve or reject the candidate visual baselines
-   (P01-T70).
-3. Optionally authorise the bounded live check: `./scripts/gateway-diagnostics.ps1 -Live`.
-5. If the remote repository still has a required "CI" status check or branch protection
+2. Optionally authorise the bounded live check: `./scripts/gateway-diagnostics.ps1 -Live`.
+3. If the remote repository still has a required "CI" status check or branch protection
    referring to the removed workflow, remove it in the repository settings (not changed
    by this phase).
 
@@ -79,7 +77,7 @@ no criterion here claims verification against a live provider (see P01-T54).
 | ID | Criterion | Status | Evidence |
 |---|---|---|---|
 | P01-T01 | Correct feature branch is active | PASS | `git branch --show-current` → `feature/01-gateway` |
-| P01-T02 | Existing Phase 00 functionality remains operational | PASS | Phase 00 config, API, storage, UI, visual (candidate baselines) and e2e tests pass in `verify.ps1` on `696438e` |
+| P01-T02 | Existing Phase 00 functionality remains operational | PASS | Phase 00 config, API, storage, UI, visual and e2e tests pass in `verify.ps1` on `696438e` |
 | P01-T03 | Official provider capabilities are documented | PASS | [PROVIDER_CAPABILITIES.md](../architecture/PROVIDER_CAPABILITIES.md), sources dated 2026-11-26 |
 | P01-T04 | GATEWAY is the centralized provider communication layer | PASS | only `solprint-gateway` depends on `reqwest`/`tokio-tungstenite`; destination allow-list (`transport::destination_policy`) |
 | P01-T05 | Provider DTOs are isolated from domain models | PASS | provider JSON decoded in GATEWAY modules into `models.rs`; consumers use `traits.rs` |
@@ -167,7 +165,7 @@ no criterion here claims verification against a live provider (see P01-T54).
 | P01-T67 | Keyboard and accessibility checks pass | PASS | axe WCAG 2.2 AA on `/gateway` in healthy, idle, pressure, offline, loading; keyboard tests |
 | P01-T68 | UI updates do not cause significant layout shifts | PASS | measured CLS (Playwright, PerformanceObserver): polling updates 0.0000 at 1440 and 390; initial load 0.053 (1440) and 0.0035 (390) after sizing the budget skeleton |
 | P01-T69 | Screenshots are captured and inspected | PASS | review captures inspected; findings fixed (wrapping unit, clipped column, truncated values, layout shift) |
-| P01-T70 | Owner approves the visual implementation | PENDING OWNER REVIEW | candidate baselines committed for review; not yet approved |
+| P01-T70 | Owner approves the visual implementation | PASS | owner approved the visual baselines committed in `9f88a9e` on 2026-11-27 ("Approve baselines") |
 
 ### Security, delivery and scope
 
@@ -180,7 +178,7 @@ no criterion here claims verification against a live provider (see P01-T54).
 | P01-T75 | No paid features are activated | PASS | no overage/top-up configuration exists; paid endpoints not implemented; defaults below free limits |
 | P01-T76 | Application operates safely without provider credentials | PASS | `missing_helius_key_disables_helius`; API tests and the verification stack run with no keys |
 | P01-T77 | Backend and frontend automated tests pass | PASS | on `72537c7`: Rust 203 (incl. PostgreSQL), Vitest 34, Playwright ui 42, e2e 5 — 0 failures |
-| P01-T78 | Complete local verification passes on the exact candidate revision | PASS | `verify.ps1` (full) on `696438e`: 18/18 PASS, `VERIFY PASSED`. Visual compares against candidate baselines that still need owner approval (T70); if the owner rejects them, the gate must be re-run. See log |
+| P01-T78 | Complete local verification passes on the exact candidate revision | PASS | `verify.ps1` (full) on `696438e`: 18/18 PASS, `VERIFY PASSED`. Visual compares against the baselines the owner approved (T70). See log |
 | P01-T79 | Documentation is complete and accurate | PASS | documents listed above, written against the implemented code |
 | P01-T80 | No future-phase trading functionality is implemented | PASS | no signals, sizing, positions, execution or wallet code; scope review |
 
