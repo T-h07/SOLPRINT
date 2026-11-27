@@ -1641,6 +1641,102 @@ mod tests {
     }
 
     #[test]
+    fn plain_transfers_are_not_swaps() {
+        let user = addr("user");
+        let (src, dst) = (addr("user:usdc"), addr("friend:usdc"));
+        let usdc = addr("mint:usdc");
+        let json = TxBuilder::new("plain-transfers", &user)
+            .ix(
+                SYSTEM_PROGRAM,
+                &[&user, &addr("friend")],
+                system_transfer(1_000),
+            )
+            .ix(SPL_TOKEN_PROGRAM, &[&src, &dst, &user], spl_transfer(250))
+            .token(&src, &usdc, &user, 6, Some(1_000), Some(750))
+            .token(&dst, &usdc, &addr("friend"), 6, Some(0), Some(250))
+            .build();
+        let d = decode(&json, &Registry::standard()).unwrap();
+        assert!(d.swaps.is_empty());
+        let kinds: Vec<_> = d.activities.iter().map(|a| a.kind).collect();
+        assert!(kinds.contains(&ActivityKind::NativeTransfer), "{kinds:?}");
+        assert!(kinds.contains(&ActivityKind::TokenTransfer), "{kinds:?}");
+    }
+
+    #[test]
+    fn liquidity_operations_are_not_swaps() {
+        let user = addr("user");
+        let pool = addr("orca:pool");
+        let (ua, ub) = (addr("user:usdc"), addr("user:meme"));
+        let (va, vb) = (addr("orca:vault_a"), addr("orca:vault_b"));
+        // increase_liquidity: [whirlpool, token_program, position_authority, position,
+        // position_token_account, token_owner_account_a, token_owner_account_b,
+        // token_vault_a, token_vault_b, tick_array_lower, tick_array_upper]
+        let json = TxBuilder::new("orca-increase", &user)
+            .ix(
+                ORCA_WHIRLPOOL,
+                &[
+                    &pool,
+                    SPL_TOKEN_PROGRAM,
+                    &user,
+                    &addr("orca:position"),
+                    &addr("orca:position_ta"),
+                    &ua,
+                    &ub,
+                    &va,
+                    &vb,
+                    &addr("orca:tick_lo"),
+                    &addr("orca:tick_hi"),
+                ],
+                anchor(orca::INCREASE_LIQUIDITY, &u64s(&[1, 0, 1_000, 2_000])),
+            )
+            .cpi(
+                2,
+                SPL_TOKEN_PROGRAM,
+                &[&ua, &va, &user],
+                spl_transfer(1_000),
+            )
+            .cpi(
+                2,
+                SPL_TOKEN_PROGRAM,
+                &[&ub, &vb, &user],
+                spl_transfer(2_000),
+            )
+            .build();
+        let d = decode(&json, &Registry::standard()).unwrap();
+        assert!(d.swaps.is_empty(), "a deposit into a pool is not a swap");
+        let lp = d
+            .activities
+            .iter()
+            .find(|a| a.kind == ActivityKind::LiquidityDeposit)
+            .unwrap();
+        assert_eq!(lp.status, DecodeStatus::PartiallyDecoded);
+        assert_eq!(lp.attribution, Some(Attribution::VerifiedAuthority));
+    }
+
+    #[test]
+    fn unsupported_token_2022_extensions_are_flagged() {
+        let user = addr("user");
+        let t22 = addr("mint:t22");
+        // ConfidentialTransferExtension (tag 27): amounts are encrypted.
+        let json = TxBuilder::new("t22-confidential", &user)
+            .ix(
+                TOKEN_2022_PROGRAM,
+                &[&addr("user:t22"), &t22, &user],
+                vec![27, 7],
+            )
+            .build();
+        let d = decode(&json, &Registry::standard()).unwrap();
+        assert!(d.swaps.is_empty());
+        assert!(
+            d.issues
+                .iter()
+                .any(|i| i.code == crate::quality::IssueCode::UnsupportedTokenExtension),
+            "{:?}",
+            d.issues
+        );
+    }
+
+    #[test]
     fn wrap_flow_is_classified() {
         let d = get("wrap_and_close_wsol");
         let kinds: Vec<_> = d.activities.iter().map(|a| a.kind).collect();
