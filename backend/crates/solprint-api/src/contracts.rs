@@ -12,6 +12,7 @@
 
 pub mod data;
 pub mod gateway;
+pub mod radar;
 
 use serde::Serialize;
 use ts_rs::TS;

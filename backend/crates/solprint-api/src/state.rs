@@ -3,11 +3,12 @@
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use solprint_config::{Config, DataEngineConfig};
+use solprint_config::{Config, DataEngineConfig, RadarConfig};
 use solprint_core::UtcTimestamp;
 use solprint_data_engine::engine::Engine;
 use solprint_data_engine::source::GatewaySource;
 use solprint_gateway::Gateway;
+use solprint_radar::RadarInfo;
 use solprint_storage::Database;
 use tokio::time::Instant;
 
@@ -60,6 +61,8 @@ struct Inner {
     gateway: Gateway,
     data_engine_config: DataEngineConfig,
     data_engine: OnceLock<Arc<Engine<GatewaySource>>>,
+    radar_config: RadarConfig,
+    radar: OnceLock<Arc<dyn RadarInfo>>,
     started_at: UtcTimestamp,
     started_instant: Instant,
     http: HttpLimits,
@@ -131,6 +134,8 @@ impl AppState {
             gateway,
             data_engine_config: config.data_engine.clone(),
             data_engine: OnceLock::new(),
+            radar_config: config.radar.clone(),
+            radar: OnceLock::new(),
             started_at: UtcTimestamp::now(),
             started_instant: Instant::now(),
             http: HttpLimits {
@@ -179,6 +184,22 @@ impl AppState {
     #[must_use]
     pub fn data_engine_config(&self) -> &DataEngineConfig {
         &self.0.data_engine_config
+    }
+
+    /// Attach the running RADAR (once). Without it, `/api/v1/radar/*` still
+    /// serves the stored registry and reports `running: false`.
+    pub fn attach_radar(&self, radar: Arc<dyn RadarInfo>) {
+        let _ = self.0.radar.set(radar);
+    }
+
+    #[must_use]
+    pub fn radar(&self) -> Option<&dyn RadarInfo> {
+        self.0.radar.get().map(AsRef::as_ref)
+    }
+
+    #[must_use]
+    pub fn radar_config(&self) -> &RadarConfig {
+        &self.0.radar_config
     }
 
     /// Static provider facts merged with GATEWAY's measured health.
