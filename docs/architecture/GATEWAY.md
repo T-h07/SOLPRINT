@@ -14,7 +14,7 @@ offers, with sources), [API_BUDGET_POLICY.md](API_BUDGET_POLICY.md) (credits),
 
 | Provider | Operations | Auth | Default state |
 |---|---|---|---|
-| Helius RPC | getHealth, getVersion, getSlot, getBlockTime, getBalance, getAccountInfo, getMultipleAccounts (≤ 100 per request, chunked), getSignaturesForAddress (bounded pagination: ≤ 1 000 per page, ≤ 10 pages), getTransaction / batched getTransactions (≤ 20 per batch, `maxSupportedTransactionVersion: 0`), getTokenAccountBalance, getTokenAccountsByOwner, getTokenSupply, getTokenLargestAccounts, getBlock | `api-key` query parameter | enabled when `HELIUS_API_KEY` is set; **getBlock disabled** |
+| Helius RPC | getHealth, getVersion, getSlot, getBlockTime, getBalance, getAccountInfo, getMultipleAccounts (≤ 100 per request, chunked), getSignaturesForAddress (bounded pagination: ≤ 1 000 per page, ≤ 10 pages), getTransaction / batched getTransactions (≤ 20 per batch, `maxSupportedTransactionVersion: 0`), getSignatureStatuses (≤ 256 per request, without `searchTransactionHistory`; a `null` item means unknown, not failed), getTokenAccountBalance, getTokenAccountsByOwner, getTokenSupply, getTokenLargestAccounts, getBlock | `api-key` query parameter | enabled when `HELIUS_API_KEY` is set; **getBlock disabled** |
 | Helius WebSocket | slot, root, logs (one address), account, signature, program (filtered) subscriptions | `api-key` query parameter | **disabled** (`GATEWAY_STREAMS_ENABLED=false`) |
 | Jupiter | Price V3 (≤ 50 mints per request, chunked), Tokens V2 search, Swap V2 `/order` **quote only** (no `taker`; a response carrying a transaction is refused) | `x-api-key` header when set | enabled |
 | DEX Screener | `tokens/v1` (≤ 30 mints, chunked), token pairs, pair, search | none | enabled; discovery (profiles, boosts) **disabled** |
@@ -150,6 +150,13 @@ admits normal traffic.
 `SwapQuoteProvider`, all implemented by `Gateway`. Future modules depend on these traits,
 not on provider DTOs: provider JSON is decoded inside GATEWAY into the normalized models
 in `models.rs`.
+
+The first consumer is the DATA ENGINE (Phase 02,
+[DATA_ENGINE.md](DATA_ENGINE.md)). It calls `getTransaction`, `getSignaturesForAddress`
+and `getSignatureStatuses` through `BlockchainProvider`, and `logsSubscribe` through
+`BlockchainStreamProvider`, with explicit request priorities (each job's own priority, P2–P5, for ingestion; P4 for
+finality checks; P5 for backfill pages). Every call goes through budget admission and the
+Helius rate limiter. Budget denial pauses its work instead of retrying around the limit.
 
 ## Lifecycle
 

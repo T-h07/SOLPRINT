@@ -77,6 +77,7 @@ Every signature to retrieve is one row in `de_jobs`. Rows are leased with
 | Evidence larger than `DATA_ENGINE_EVIDENCE_MAX_BYTES` | `QUARANTINED` + `EVIDENCE_TOO_LARGE` | — |
 | Unparseable or inconsistent evidence | `QUARANTINED` + `EVIDENCE_PARSE_FAILED` (or the specific reconstruction code) | — |
 | Unsupported transaction version | `UNSUPPORTED` | — |
+| Unexpected processing error (for example a storage failure) | handed back as `FETCH_RETRY` with backoff and `JOB_ERROR`; ends `QUARANTINED` when attempts run out | yes |
 
 Malformed evidence never stops a worker. Above `DATA_ENGINE_QUEUE_CAPACITY` non-terminal
 jobs, intake is refused with `QUEUE_SATURATED` and backfills pause.
@@ -160,7 +161,7 @@ from Rust into `frontend/src/types/generated` (`cargo test -p solprint-api`).
 | `/api/v1/data/decoders` | none |
 | `/api/v1/data/transactions` | `protocol`, `status`, `finality`, `cursor` (`slot:signature`), `limit` (1–200, default 50) |
 | `/api/v1/data/transactions/{signature}` | none. Evidence metadata, balances, activities, swaps, issues; 404 when not stored |
-| `/api/v1/data/swaps` | `wallet`, `mint`, `protocol`, `status`, `include_retracted`, `cursor`, `limit` |
+| `/api/v1/data/swaps` | `wallet`, `mint`, `protocol`, `status`, `include_retracted`, `verified_only` (only canonical `VERIFIED` swaps with a verified attribution, the same rule as the verified total), `cursor`, `limit` |
 | `/api/v1/data/issues` | `severity`, `signature`, `include_resolved`, `limit` |
 | `/api/v1/data/targets` | none |
 | `/api/v1/data/backfills` | `limit` |

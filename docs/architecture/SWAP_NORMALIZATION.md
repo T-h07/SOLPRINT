@@ -92,6 +92,7 @@ must use the newest price observed **at or before** the swap's block time, withi
 
 When a transaction is decoded again from new evidence (a finalized refetch) or by a new
 decoder version, its swaps are rewritten under a new revision. A swap id that no longer
-exists is marked non-canonical, with `retracted_at` and a `retraction_reason`, and a
-`SwapRetracted` event is emitted. Retracted swaps are excluded from listings by default.
+exists is marked non-canonical, with `retracted_at` and a `retraction_reason` (`EVIDENCE_REVISION` when the evidence
+changed, `DECODER_REVISION` when only the decoder did, `ORPHANED` for the storage-level
+orphan transition), and a `SwapRetracted` event carrying the same reason is emitted. Retracted swaps are excluded from listings by default.
 See [FINALITY_AND_RECONCILIATION.md](FINALITY_AND_RECONCILIATION.md).

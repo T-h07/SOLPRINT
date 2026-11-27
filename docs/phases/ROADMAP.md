@@ -8,9 +8,9 @@ deliberately not specified here.
 | Phase | Scope | Status |
 |---|---|---|
 | 00 | **Foundation** — workspace, config and secrets, PostgreSQL/SQLx, health/status API, observability, Docker, TERMINAL shell and design system, tests, verification scripts | complete; merged into `develop`, owner-approved |
-| 01 | **GATEWAY / providers** — read-only provider integrations (Helius RPC + WebSocket, Jupiter, DEX Screener, Solana RPC fallback), caching, rate limits, API budgets, monitoring UI *(known)* | implemented on `feature/01-gateway`; awaiting owner review ([PHASE_01.md](PHASE_01.md)) |
-| 02 | to be confirmed by the owner | not started |
-| 03–09 | backend module phases (DATA ENGINE, RADAR, FILTER, CORTEX, GUARD, REPLAY, SANDBOX — order and grouping to be confirmed by the owner); each must expose UI-facing state deliberately (see [ROADMAP_UI_INTEGRATION.md](../design/ROADMAP_UI_INTEGRATION.md)) | not started |
+| 01 | **GATEWAY / providers** — read-only provider integrations (Helius RPC + WebSocket, Jupiter, DEX Screener, Solana RPC fallback), caching, rate limits, API budgets, monitoring UI *(known)* | complete; merged into `develop`, owner-approved ([PHASE_01.md](PHASE_01.md)) |
+| 02 | **DATA ENGINE** — read-only, evidence-backed ingestion, reconstruction and decoding of Solana transactions; swaps, attribution, finality, bounded backfills, transactional outbox, data quality, read-only API and Data workspace | implemented on `feature/02-data-engine`; awaiting owner review ([PHASE_02.md](PHASE_02.md)) |
+| 03–09 | backend module phases (RADAR, FILTER, CORTEX, GUARD, REPLAY, SANDBOX — order and grouping to be confirmed by the owner); each must expose UI-facing state deliberately (see [ROADMAP_UI_INTEGRATION.md](../design/ROADMAP_UI_INTEGRATION.md)) | not started |
 | 10 | **TERMINAL** — workspace shell and all core views *(known)* | not started (Phase 00 shell exists) |
 | 11 | **SNIPER** — authorised execution and reconciliation, built on existing safety primitives *(known)* | not started |
 | 12 | **Hardening** *(known)* | not started |

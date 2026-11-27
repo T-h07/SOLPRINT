@@ -32,10 +32,11 @@ provider, holds a key or executes a transaction.
 | `solprint-core` | Domain primitives: exact amounts (`Lamports`, `TokenAmount`, `BasisPoints`, `Price`), Solana identifiers, UTC timestamps, IDs (UUIDv7), `TradingMode`, `ReasonCode`, `DataFreshness`, `EventEnvelope` | none |
 | `solprint-config` | Typed configuration from env/.env, full validation, `Secret<T>`, live-trading rejection | reads env |
 | `solprint-observability` | `tracing` subscriber (pretty/JSON), filter policy, request-id header | stdout |
-| `solprint-storage` | PostgreSQL pool, embedded migrations, instance registration, health probe, GATEWAY ledger/usage/metric/checkpoint rows | database |
+| `solprint-storage` | PostgreSQL pool, embedded migrations, instance registration, health probe, GATEWAY ledger/usage/metric/checkpoint rows, DATA ENGINE tables (`de_*`) | database |
 | `solprint-gateway` | GATEWAY: the only provider access layer (Helius RPC + WebSocket, Jupiter, DEX Screener, Solana RPC fallback), budget, rate limits, scheduler, cache, coalescing, breakers, health, metrics. See [GATEWAY.md](GATEWAY.md) | outbound HTTPS/WSS |
+| `solprint-data-engine` | DATA ENGINE: durable job queue, evidence, transaction reconstruction, protocol decoders, swap normalization, wallet attribution, finality reconciler, bounded backfills, transactional outbox, data quality, reprocessing, retention. Read-only; reaches providers only through GATEWAY. See [DATA_ENGINE.md](DATA_ENGINE.md) | via GATEWAY and storage |
 | `solprint-api` | Axum router, contracts, middleware (request id, access log, error envelope, security headers, limits) | HTTP |
-| `solprint-app` | The `solprint` binary: lifecycle, signals, graceful shutdown, `healthcheck` and `gateway-diagnostics` subcommands | process |
+| `solprint-app` | The `solprint` binary: lifecycle, signals, graceful shutdown, `healthcheck`, `gateway-diagnostics` and `data-engine` subcommands | process |
 
 Dependency rules are in [MODULE_BOUNDARIES.md](MODULE_BOUNDARIES.md).
 
@@ -62,6 +63,7 @@ Dependency rules are in [MODULE_BOUNDARIES.md](MODULE_BOUNDARIES.md).
 | `GET /health/ready` | 200 `READY` when the database probe succeeds, 503 `NOT_READY` otherwise (structured body either way). |
 | `GET /api/v1/system/status` | Operating mode (`PAPER`, live disabled, `execution_capability: NONE`), database state, migrations, provider health measured by GATEWAY (`UNKNOWN` until traffic), uptime. |
 | `GET /api/v1/gateway/{status,providers,usage,metrics,budgets,streams,cache}` | GATEWAY monitoring, read from local state and stored aggregates only (never triggers provider traffic). |
+| `GET /api/v1/data/{status,decoders,transactions,transactions/{signature},swaps,issues,targets,backfills,events}` | DATA ENGINE state, read from PostgreSQL only (never triggers ingestion or provider traffic); when the database is down, reads return a 503 envelope and `status` reports the outage. |
 | `GET /api/v1/system/version` | Name, version, API version, git commit (if built with one), build profile. |
 
 Every response carries `x-request-id` and security headers; every non-2xx response is a
@@ -108,8 +110,9 @@ filesystems and no capabilities. See [SECURITY_MODEL.md](SECURITY_MODEL.md).
 
 ## Target architecture: modular, event-driven monolith
 
-SOLPRINT grows into one process with ten modules. Phase 00 builds only the foundation
-they share; nothing below is implemented yet.
+SOLPRINT grows into one process with ten modules. GATEWAY (Phase 01) and the DATA ENGINE
+(Phase 02) are implemented. The other modules are not, and TERMINAL exists only as the
+shell and the pages for those two modules.
 
 | Module | Responsibility |
 |---|---|
@@ -126,6 +129,9 @@ they share; nothing below is implemented yet.
 
 ### Planned event flow (indicative, to be specified per phase)
 
+The DATA ENGINE part exists: it publishes versioned domain events through a
+transactional outbox (`de_outbox`). The consumers to its right do not exist yet.
+
 ```
 providers ─▶ GATEWAY ─▶ DATA ENGINE ─▶ EventEnvelope<T> ─┬─▶ RADAR ─┐
                                                           ├─▶ FILTER ┼─▶ CORTEX ─▶ GUARD ─▶ SANDBOX (paper)
@@ -139,7 +145,7 @@ transport; a broker is introduced only if a measured requirement demands it.
 
 ### Provider boundary
 
-Only GATEWAY will talk to external providers. It owns credentials, rate limits, caching
+Only GATEWAY talks to external providers. It owns credentials, rate limits, caching
 and the API budget (initially zero paid subscriptions). Other modules consume normalised
 events and never see a provider client or key.
 
