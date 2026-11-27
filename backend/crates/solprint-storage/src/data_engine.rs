@@ -771,8 +771,11 @@ async fn enqueue_in(
         _ => "MANUAL",
     };
     // xmax = 0 identifies a freshly inserted row.
+    // `prev` reads the snapshot before the upsert, so a job that was already
+    // pending is reported as existing, not as re-queued.
     let row = sqlx::query(
-        "INSERT INTO solprint.de_jobs
+        "WITH prev AS (SELECT state FROM solprint.de_jobs WHERE network = $1 AND signature = $2)
+         INSERT INTO solprint.de_jobs
             (network, signature, state, priority, required_commitment, source, max_attempts)
          VALUES ($1, $2, 'PENDING', $3, $4, $5, $6)
          ON CONFLICT (network, signature) DO UPDATE
@@ -795,7 +798,7 @@ async fn enqueue_in(
                 next_attempt_at = CASE WHEN solprint.de_jobs.state IN ('UNAVAILABLE', 'CANCELLED') THEN now()
                                        ELSE solprint.de_jobs.next_attempt_at END,
                 updated_at = now()
-         RETURNING (xmax = 0) AS inserted, state",
+         RETURNING (xmax = 0) AS inserted, state, (SELECT state FROM prev) AS prev_state",
     )
     .bind(NETWORK)
     .bind(&obs.signature)
@@ -808,11 +811,12 @@ async fn enqueue_in(
     .map_err(|x| e(&x))?;
     let created: bool = row.get("inserted");
     let state: String = row.get("state");
+    let prev_state: Option<String> = row.get("prev_state");
     Ok(if created {
         EnqueueOutcome::Created
     } else if !inserted {
         EnqueueOutcome::DuplicateObservation
-    } else if state == "PENDING" {
+    } else if state == "PENDING" && prev_state.as_deref() != Some("PENDING") {
         EnqueueOutcome::Requeued
     } else {
         EnqueueOutcome::Existing
@@ -1652,7 +1656,9 @@ impl Database {
     }
 
     /// Apply a finality transition guarded by the expected current state.
-    /// `ORPHANED` retracts the transaction's swaps and activities.
+    /// `ORPHANED` retracts the transaction's swaps and activities. Each
+    /// outbox event's `aggregate_revision` is set to the transaction's
+    /// current revision inside the same database transaction.
     #[allow(clippy::too_many_arguments)]
     pub async fn de_apply_finality(
         &self,
@@ -1673,19 +1679,23 @@ impl Database {
                     next_finality_check_at = $5,
                     finalized_at = CASE WHEN $4 = 'FINALIZED' THEN COALESCE(finalized_at, now()) ELSE finalized_at END,
                     updated_at = now()
-              WHERE network = $1 AND signature = $2 AND finality = $3",
+              WHERE network = $1 AND signature = $2 AND finality = $3
+             RETURNING current_revision",
         )
         .bind(NETWORK)
         .bind(signature)
         .bind(expected)
         .bind(new)
         .bind(next_check.map(ts))
-        .execute(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(|x| e(&x))?;
-        if r.rows_affected() != 1 {
+        let Some(r) = r else {
             return Ok(false);
-        }
+        };
+        // Finality events belong to the transaction's current revision; the
+        // caller cannot know it without a racy read, so it is stamped here.
+        let revision: i32 = r.get("current_revision");
         if new == "ORPHANED" {
             sqlx::query("UPDATE solprint.de_swaps SET finality = 'ORPHANED', canonical = FALSE, retracted_at = now(), retraction_reason = 'ORPHANED' WHERE network = $1 AND signature = $2 AND canonical")
                 .bind(NETWORK)
@@ -1719,7 +1729,9 @@ impl Database {
             .map_err(|x| e(&x))?;
         }
         for o in outbox {
-            insert_outbox(&mut tx, o).await?;
+            let mut o = o.clone();
+            o.aggregate_revision = revision;
+            insert_outbox(&mut tx, &o).await?;
         }
         if let Some(i) = issue {
             insert_issue(&mut tx, i).await?;

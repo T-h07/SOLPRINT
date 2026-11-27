@@ -780,14 +780,18 @@ impl<S: ChainSource> Engine<S> {
             schema_version: EVENT_SCHEMA,
             aggregate_type: "TRANSACTION".to_owned(),
             aggregate_id: signature.to_owned(),
+            // Stamped with the transaction's current revision by storage.
             aggregate_revision: 0,
-            source: "FINALITY_RECONCILER".to_owned(),
+            // Derived locally by the reconciler, not observed from a provider.
+            source: "INTERNAL".to_owned(),
             source_event_time: None,
             observed_at: UtcTimestamp::now(),
             correlation_id: Uuid::new_v4(),
             causation_id: None,
             commitment: None,
-            quality_state: to.to_owned(),
+            // Finality is not a decode-quality state; the transition is in
+            // the payload.
+            quality_state: "NOT_APPLICABLE".to_owned(),
             payload_json: serde_json::json!({"signature": signature, "from": from, "to": to})
                 .to_string(),
         }]
