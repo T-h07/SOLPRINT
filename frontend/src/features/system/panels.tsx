@@ -303,7 +303,7 @@ export function ModulesPanel({ className }: { className?: string }) {
       title="Modules"
       flush
       className={className}
-      meta={<span>GATEWAY implemented · other modules not yet</span>}
+      meta={<span>GATEWAY and DATA ENGINE implemented · other modules not yet</span>}
     >
       <Table label="SOLPRINT modules">
         <THead>
@@ -324,7 +324,7 @@ export function ModulesPanel({ className }: { className?: string }) {
               <Td>
                 {m.name === 'TERMINAL' ? (
                   <StatusIndicator tone="info" label="Foundation shell" />
-                ) : m.name === 'GATEWAY' ? (
+                ) : m.name === 'GATEWAY' || m.name === 'DATA ENGINE' ? (
                   <StatusIndicator tone="info" label="Read-only" />
                 ) : (
                   <StatusIndicator tone="neutral" label="Not implemented" />

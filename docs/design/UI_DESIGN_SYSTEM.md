@@ -111,7 +111,7 @@ durations become 0 under `prefers-reduced-motion`.
 | `DataState`, `Skeleton`, `FixtureFrame` | loading, empty, error (with retry), stale, partial; fixtures framed and labelled `FIXTURE` |
 | `MetricCell`, `Timestamp`, `DataAge` | loading skeleton; UTC timestamp; age with stale styling |
 | `Tooltip` | Radix; keyboard and hover |
-| `Drawer` | Radix dialog; focus-trapped, Esc to close |
+| `Drawer` | Radix dialog; focus-trapped; opening focuses the dialog itself (so the close button's tooltip does not capture the first Esc); Esc closes and returns focus to the element that opened it, also for controlled drawers without a trigger |
 
 Shell components (`components/shell`): `AppShell`, `ModeIndicator` (`PAPER MODE`,
 `LIVE TRADING`, `MODE UNVERIFIED`, loading), `ConnectionIndicator` (connecting,
@@ -136,6 +136,39 @@ Labels (`features/gateway/labels.ts`): unmeasured health is shown as **Not measu
 never as healthy or zero; budget, circuit, stream and continuity states are text plus
 glyph. Gateway data polls every 5 s (usage every 60 s) and is marked stale when it
 stops updating.
+
+## Data engine workspace (`/data`, Phase 02)
+
+`features/data/panels.tsx` and `features/data/TransactionInspector.tsx`, laid out by
+`pages/DataPage.tsx` on a three-column grid at ≥ 1200 px (`xl`; single column below).
+Everything on the page is read-only: no control queues, retries or changes work (that is
+the `solprint data-engine` CLI).
+
+| Pane | Content | Notes |
+|---|---|---|
+| Ingestion (2 cols) | queue depth of capacity, stored transactions, swaps and verified swaps, blocking issues; jobs by state, oldest pending, finality and decode-status breakdowns, last decoded, evidence bytes and retention, outbox backlog | when PostgreSQL cannot be read the totals say `database unavailable` and a `PARTIAL` notice explains that nothing is shown as zero |
+| Data engine | running / not running, execution capability (`None · read-only decoding`), decoder version, live intake, backfill, USD valuation (off), commitment, process counters since start, last error | |
+| Swaps (3 cols) | time (opens the inspector), protocol, wallet with attribution, input and output amounts, out-per-in ratio (≥ 1440 px), decode status with finality | protocol filter (`Select`); below 480 px the amounts stack under the time; retracted swaps say `retracted` and the reason is in the inspector; footnote states that no USD values are shown while price enrichment is off |
+| Transactions (2 cols) | signature (opens the inspector), slot, protocols, decode status, finality, swaps, fee | failed-on-chain is text, not colour |
+| Data quality | open issues by severity, latest issues with code and detail | |
+| Targets (2 cols), Backfills | ingestion targets with coverage and priority; bounded backfills with status and pause reason | empty states say that targets and backfills are only created by the owner |
+| Domain events (3 cols) | outbox sequence, event type, quality, aggregate, delivery | |
+
+Transaction inspector (`Drawer`): summary, swaps (venue, status, attribution, sent and
+received, ratio, route completeness, USD state, route legs and fees in raw units),
+activities in execution order, balance deltas (signed with U+2212, inferred evidence
+named), evidence revisions with SHA-256, and quality issues; an unknown signature shows
+an empty state, not an error.
+
+Formatting: token amounts are raw `u64` strings formatted with `BigInt`, truncated (never
+rounded up) to four places; an unknown scale shows the raw value with `raw`, and an
+unknown amount is `—`, never `0` (`formatTokenAmount`, `formatSignedBaseUnits`,
+`shortId` in `lib/format/number.ts`). Labels (`features/data/labels.ts`) map every known
+decode, finality, attribution, job, severity, backfill and coverage state to text plus
+glyph; an unknown future value is shown verbatim in neutral, never coerced into a known
+state. Status polls every 5 s and lists every 15 s; lists are marked stale after 45 s.
+Shared pane helpers (`LoadFailure`, `Age`, `RowsSkeleton`, `Unreachable`) live in
+`features/shared` and are used by both workspaces.
 
 ## Data states (mandatory for every data component)
 

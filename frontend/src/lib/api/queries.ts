@@ -6,6 +6,14 @@
 import { useQuery } from '@tanstack/react-query';
 
 import type {
+  DataBackfillsResponse,
+  DataEngineStatus,
+  DataEventsResponse,
+  DataIssuesResponse,
+  DataSwapsResponse,
+  DataTargetsResponse,
+  DataTransactionDetail,
+  DataTransactionsResponse,
   GatewayBudgetsResponse,
   GatewayCacheResponse,
   GatewayMetricsResponse,
@@ -20,6 +28,14 @@ import type {
 
 import { type ApiResponse, getJson } from './client.ts';
 import {
+  isDataBackfills,
+  isDataEvents,
+  isDataIssues,
+  isDataStatus,
+  isDataSwaps,
+  isDataTargets,
+  isDataTransactionDetail,
+  isDataTransactions,
   isGatewayBudgets,
   isGatewayCache,
   isGatewayMetrics,
@@ -41,6 +57,7 @@ export const queryKeys = {
   readiness: ['health', 'ready'] as const,
   version: ['system', 'version'] as const,
   gateway: (part: string) => ['gateway', part] as const,
+  data: (part: string, ...args: (string | null)[]) => ['data', part, ...args] as const,
 };
 
 /**
@@ -131,4 +148,88 @@ export function useGatewayUsage() {
   return useQuery<ApiResponse<GatewayUsageResponse>>(
     gatewayQuery('usage', '/api/v1/gateway/usage?hours=24', isGatewayUsage, USAGE_POLL_INTERVAL_MS),
   );
+}
+
+// DATA ENGINE. Endpoints read PostgreSQL and in-process counters only: polling
+// them never causes a provider request and never enqueues work.
+
+/** Decoded records change only as jobs complete, so lists poll less often. */
+export const DATA_LIST_POLL_INTERVAL_MS = 15_000;
+export const DATA_LIST_STALE_AFTER_MS = 45_000;
+
+export function useDataStatus() {
+  return useQuery<ApiResponse<DataEngineStatus>>({
+    queryKey: queryKeys.data('status'),
+    queryFn: ({ signal }) => getJson('/api/v1/data/status', { signal, guard: isDataStatus }),
+    refetchInterval: POLL_INTERVAL_MS,
+  });
+}
+
+function dataList<T>(
+  part: string,
+  path: string,
+  guard: (v: unknown) => v is T,
+  key: string | null = null,
+) {
+  return {
+    queryKey: queryKeys.data(part, key),
+    queryFn: ({ signal }: { signal: AbortSignal }) => getJson(path, { signal, guard }),
+    refetchInterval: DATA_LIST_POLL_INTERVAL_MS,
+  };
+}
+
+const PROTOCOL = /^[A-Z0-9_]{1,32}$/;
+
+export function useDataSwaps(protocol: string | null) {
+  const q = protocol && PROTOCOL.test(protocol) ? `&protocol=${protocol}` : '';
+  return useQuery<ApiResponse<DataSwapsResponse>>(
+    dataList('swaps', `/api/v1/data/swaps?limit=50${q}`, isDataSwaps, protocol),
+  );
+}
+
+export function useDataTransactions() {
+  return useQuery<ApiResponse<DataTransactionsResponse>>(
+    dataList('transactions', '/api/v1/data/transactions?limit=25', isDataTransactions),
+  );
+}
+
+export function useDataIssues() {
+  return useQuery<ApiResponse<DataIssuesResponse>>(
+    dataList('issues', '/api/v1/data/issues?limit=25', isDataIssues),
+  );
+}
+
+export function useDataTargets() {
+  return useQuery<ApiResponse<DataTargetsResponse>>(
+    dataList('targets', '/api/v1/data/targets', isDataTargets),
+  );
+}
+
+export function useDataBackfills() {
+  return useQuery<ApiResponse<DataBackfillsResponse>>(
+    dataList('backfills', '/api/v1/data/backfills?limit=10', isDataBackfills),
+  );
+}
+
+export function useDataEvents() {
+  return useQuery<ApiResponse<DataEventsResponse>>(
+    dataList('events', '/api/v1/data/events?limit=20', isDataEvents),
+  );
+}
+
+const SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
+
+/** Detail for the inspector; disabled until a valid signature is selected. */
+export function useDataTransaction(signature: string | null) {
+  const valid = signature !== null && SIGNATURE.test(signature);
+  return useQuery<ApiResponse<DataTransactionDetail>>({
+    queryKey: queryKeys.data('transaction', signature),
+    queryFn: ({ signal }) =>
+      getJson(`/api/v1/data/transactions/${signature ?? ''}`, {
+        signal,
+        guard: isDataTransactionDetail,
+      }),
+    enabled: valid,
+    refetchInterval: DATA_LIST_POLL_INTERVAL_MS,
+  });
 }

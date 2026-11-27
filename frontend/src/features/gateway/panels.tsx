@@ -3,18 +3,14 @@
  * GATEWAY state or stored aggregates; polling these endpoints never sends a
  * request to Helius, Jupiter, DEX Screener or the public RPC.
  */
-import type { UseQueryResult } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 
-import { Button } from '@/components/ui/Button.tsx';
 import { DataState, Skeleton } from '@/components/ui/DataState.tsx';
-import { DataAge, MetricCell, Timestamp } from '@/components/ui/Metric.tsx';
+import { MetricCell, Timestamp } from '@/components/ui/Metric.tsx';
 import { DefinitionList, Panel } from '@/components/ui/Panel.tsx';
 import { StatusIndicator } from '@/components/ui/StatusIndicator.tsx';
 import { TBody, THead, Table, Td, Th, Tr } from '@/components/ui/Table.tsx';
-import { type ApiResponse, describeFailure } from '@/lib/api/client.ts';
 import {
-  STALE_AFTER_MS,
   USAGE_STALE_AFTER_MS,
   useGatewayBudgets,
   useGatewayCache,
@@ -28,6 +24,9 @@ import { cn } from '@/lib/cn.ts';
 import { formatBytes, formatInteger, formatLatencyUs, formatShare } from '@/lib/format/number.ts';
 import { formatDuration } from '@/lib/format/time.ts';
 import type { BudgetDto, GatewayProvider, ProviderId } from '@/types/api.ts';
+
+import { Age, RowsSkeleton, Unreachable } from '../shared/pane.tsx';
+import { useApi } from '../shared/useApi.ts';
 
 import {
   admittedRange,
@@ -44,49 +43,6 @@ const providerName: Record<ProviderId, string> = {
   DEX_SCREENER: 'DEX Screener',
   SOLANA_RPC: 'Solana RPC',
 };
-
-function useApi<T>(q: UseQueryResult<ApiResponse<T>>) {
-  return {
-    data: q.data?.data,
-    loading: q.isPending && !q.error,
-    error: q.error ? describeFailure(q.error) : null,
-    updatedAt: q.dataUpdatedAt,
-    retry: () => void q.refetch(),
-  };
-}
-
-function Unreachable({ what, onRetry }: { what: string; onRetry: () => void }) {
-  return (
-    <DataState
-      kind="error"
-      title={`${what} unavailable: backend unreachable.`}
-      detail="No values are shown until the backend answers. Retrying is safe: it reads local state only."
-      action={
-        <Button size="sm" onClick={onRetry}>
-          Retry
-        </Button>
-      }
-    />
-  );
-}
-
-function Age({ at, staleAfterMs = STALE_AFTER_MS }: { at: number; staleAfterMs?: number }) {
-  return at > 0 ? <DataAge at={at} staleAfterMs={staleAfterMs} /> : null;
-}
-
-function RowsSkeleton({ cols, rows = 4 }: { cols: number; rows?: number }) {
-  return (
-    <>
-      {Array.from({ length: rows }, (_, i) => (
-        <Tr key={i}>
-          <Td colSpan={cols}>
-            <Skeleton className="h-3 w-full" />
-          </Td>
-        </Tr>
-      ))}
-    </>
-  );
-}
 
 const n = (v: number) => formatInteger(v);
 
