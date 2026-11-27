@@ -174,7 +174,7 @@ impl Metrics {
 }
 
 /// What the API and CLI may read about a running RADAR (local state only).
-pub trait RadarInfo: Send + Sync {
+pub trait RadarInfo: Send + Sync + std::fmt::Debug {
     fn config(&self) -> &RadarConfig;
     fn metrics(&self) -> MetricsSnapshot;
     /// GATEWAY budget and RADAR's admission (local state, no provider call).

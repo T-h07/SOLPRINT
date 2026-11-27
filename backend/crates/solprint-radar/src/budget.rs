@@ -39,6 +39,15 @@ impl Admission {
     }
 
     #[must_use]
+    pub const fn mode_label(&self) -> &'static str {
+        match self.mode {
+            Mode::Full => "FULL",
+            Mode::Conservation => "CONSERVATION",
+            Mode::Paused(_) => "PAUSED",
+        }
+    }
+
+    #[must_use]
     pub const fn reason(&self) -> Option<&'static str> {
         match self.mode {
             Mode::Paused(r) => Some(r),

@@ -231,14 +231,20 @@ impl GatewayFeed {
     }
 }
 
+/// RADAR's view of GATEWAY's budget (in-memory snapshot, no provider call).
+#[must_use]
+pub fn budget_view(gateway: &Gateway) -> Option<BudgetView> {
+    gateway.snapshot().budget.map(|b| BudgetView {
+        state: b.state.as_str().to_owned(),
+        normal_credits: b.normal_credits,
+        credits_used: b.credits_used,
+        ledger_loaded: b.ledger_loaded,
+    })
+}
+
 impl MarketFeed for GatewayFeed {
     fn budget(&self) -> Option<BudgetView> {
-        self.gateway.snapshot().budget.map(|b| BudgetView {
-            state: b.state.as_str().to_owned(),
-            normal_credits: b.normal_credits,
-            credits_used: b.credits_used,
-            ledger_loaded: b.ledger_loaded,
-        })
+        budget_view(&self.gateway)
     }
 
     fn streams_available(&self) -> bool {

@@ -21,6 +21,7 @@ pub mod lifecycle;
 pub mod market;
 pub mod model;
 pub mod monitoring;
+pub mod query;
 pub mod scoring;
 pub mod screening;
 

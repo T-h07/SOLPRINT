@@ -401,6 +401,15 @@ async fn autonomous_discovery_from_an_empty_registry() {
     assert!(!snaps.is_empty());
     assert!(snaps[0].metrics_json.contains("evidenceQuality"));
 
+    // Later phases read the registry through the typed query interface.
+    let q = solprint_radar::query::RadarQuery::new(w.db.clone());
+    let ready = q.ready_for_analysis(None, 10).await.unwrap();
+    assert_eq!(ready.len(), 1);
+    assert_eq!(ready[0].address, trader);
+    assert_eq!(ready[0].coverage_state, t.history_coverage_state);
+    assert_eq!(q.monitored(10).await.unwrap().len(), 1);
+    assert_eq!(q.evidence(&trader, 100).await.unwrap().len(), 12);
+
     // The one-off buyer is known but not promoted.
     let tw =
         w.db.radar_wallet(&tourist)
