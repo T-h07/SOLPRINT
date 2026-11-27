@@ -1130,3 +1130,115 @@ async fn extreme_amounts_round_trip_exactly_through_the_schema() {
         "the transfer amount is stored as an exact u64"
     );
 }
+
+#[tokio::test]
+#[ignore = "requires SOLPRINT_TEST_DATABASE_URL (disposable PostgreSQL)"]
+async fn a_full_queue_refuses_intake_and_pauses_backfills_visibly() {
+    let src = Arc::new(MemorySource::default());
+    let tdb = TestDatabase::create().await;
+    let db = Database::connect(&tdb.config()).await.unwrap();
+    db.migrate().await.unwrap();
+    let mut cfg = config();
+    cfg.queue_capacity = 1;
+    let e = Arc::new(Engine::new(db.clone(), Arc::clone(&src), cfg));
+
+    let first = fixtures::sig("full:0");
+    observe(&e, &first).await;
+    // The second observation is refused, not silently dropped.
+    let refused = e
+        .observe(
+            &fixtures::sig("full:1"),
+            "MANUAL",
+            None,
+            None,
+            None,
+            None,
+            3,
+        )
+        .await;
+    assert!(refused.is_err());
+    assert_eq!(db.de_jobs(None, 10).await.unwrap().len(), 1);
+    assert!(
+        db.de_issues(None, None, false, 10)
+            .await
+            .unwrap()
+            .iter()
+            .any(|i| i.code == "QUEUE_SATURATED")
+    );
+
+    let id = Uuid::new_v4();
+    db.de_create_backfill(&NewBackfill {
+        backfill_id: id,
+        target_id: None,
+        address: fixtures::addr("full-owner"),
+        commitment: "finalized".into(),
+        start_before_signature: None,
+        until_signature: None,
+        min_slot: None,
+        page_size: 10,
+        max_pages: 5,
+        max_signatures: 100,
+        credits_estimated: 105,
+    })
+    .await
+    .unwrap();
+    e.backfill_tick(&CancellationToken::new())
+        .await
+        .unwrap()
+        .unwrap();
+    let bf = db.de_backfill(id).await.unwrap().unwrap();
+    assert_eq!(bf.status, "PAUSED_BY_QUEUE");
+    assert_eq!(
+        bf.pages_fetched, 0,
+        "no credits are spent while the queue is full"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires SOLPRINT_TEST_DATABASE_URL (disposable PostgreSQL)"]
+async fn a_page_limited_backfill_reports_partial_history() {
+    let src = Arc::new(MemorySource::default());
+    let s0 = fixtures::sig("partial:0");
+    src.pages.lock().unwrap().insert(
+        None,
+        SignaturePage {
+            items: vec![sig_info(&s0, 500)],
+            complete: false,
+            next_before: Some(TransactionSignature::parse(&s0).unwrap()),
+            pages_fetched: 1,
+        },
+    );
+    let (_tdb, e) = engine(Arc::clone(&src)).await;
+    let db = e.database();
+    let id = Uuid::new_v4();
+    db.de_create_backfill(&NewBackfill {
+        backfill_id: id,
+        target_id: None,
+        address: fixtures::addr("partial-owner"),
+        commitment: "finalized".into(),
+        start_before_signature: None,
+        until_signature: None,
+        min_slot: None,
+        page_size: 1,
+        max_pages: 1,
+        max_signatures: 100,
+        credits_estimated: 2,
+    })
+    .await
+    .unwrap();
+    e.backfill_tick(&CancellationToken::new())
+        .await
+        .unwrap()
+        .unwrap();
+    let bf = db.de_backfill(id).await.unwrap().unwrap();
+    assert_eq!(bf.status, "COMPLETED");
+    assert_eq!(bf.coverage_state, "PARTIAL_HISTORY");
+    assert!(!bf.history_exhausted, "a limit is not the end of history");
+    let issues = db.de_issues(None, None, false, 10).await.unwrap();
+    let gap = issues
+        .iter()
+        .find(|i| i.code == "BACKFILL_INCOMPLETE")
+        .unwrap();
+    assert_eq!(gap.backfill_id, Some(id));
+    assert!(gap.resolved_at.is_none());
+}
