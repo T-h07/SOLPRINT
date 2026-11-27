@@ -6,6 +6,7 @@
  */
 import type {
   DataBackfillsResponse,
+  DataDecodersResponse,
   DataEngineStatus,
   DataEventsResponse,
   DataIssuesResponse,
@@ -222,4 +223,14 @@ export function isDataBackfills(v: unknown): v is DataBackfillsResponse {
 
 export function isDataEvents(v: unknown): v is DataEventsResponse {
   return isObj(v) && isStr(v.generated_at) && Array.isArray(v.items);
+}
+
+export function isDataDecoders(v: unknown): v is DataDecodersResponse {
+  return (
+    isObj(v) &&
+    isStr(v.decoder_version) &&
+    isStr(v.network) &&
+    Array.isArray(v.decoders) &&
+    v.decoders.every((d) => isObj(d) && isStr(d.id) && isStr(d.protocol) && isStr(d.program_id))
+  );
 }

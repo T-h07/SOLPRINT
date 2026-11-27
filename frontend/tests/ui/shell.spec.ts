@@ -239,6 +239,29 @@ test.describe('data engine workspace', () => {
     expect(errors).toEqual([]);
   });
 
+  test('decoder coverage lists every decoded program, even with the database down', async ({
+    page,
+  }) => {
+    await mockBackend(page, 'database-down');
+    await page.goto('/data');
+    await settle(page);
+    const coverage = page.getByRole('region', { name: 'Decoded programs' });
+    await expect(coverage.locator('tbody tr')).toHaveCount(7);
+    for (const name of [
+      'Jupiter',
+      'Pump.fun',
+      'PumpSwap',
+      'Raydium AMM v4',
+      'Raydium CPMM',
+      'Raydium CLMM',
+      'Orca Whirlpool',
+    ]) {
+      await expect(coverage.getByText(name, { exact: true })).toBeVisible();
+    }
+    await expect(page.getByText(/stored with their evidence as unsupported/i)).toBeVisible();
+    await expect(page.getByText('de-2026.11.1').first()).toBeVisible();
+  });
+
   test('protocol filter narrows the swap list', async ({ page }) => {
     await mockBackend(page, 'healthy');
     await page.goto('/data');

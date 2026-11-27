@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import {
   BackfillsPanel,
+  DecodersPanel,
   EngineStatePanel,
   EventsPanel,
   IngestionPanel,
@@ -16,7 +17,8 @@ import { PageLayout } from '@/layouts/PageLayout.tsx';
 /**
  * DATA ENGINE workspace. Eye flow: ingestion totals and engine state (is
  * data arriving, is anything blocked) → swaps (the normalized output) →
- * transactions and data quality → targets, backfills and domain events.
+ * transactions and data quality → targets, backfills, domain events and
+ * decoder coverage.
  */
 export function DataPage() {
   const [protocol, setProtocol] = useState<string | null>(null);
@@ -36,7 +38,8 @@ export function DataPage() {
         <QualityPanel />
         <TargetsPanel className="xl:col-span-2" />
         <BackfillsPanel />
-        <EventsPanel className="xl:col-span-3" />
+        <EventsPanel className="xl:col-span-2" />
+        <DecodersPanel />
       </div>
       <TransactionInspector
         signature={inspected}

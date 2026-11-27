@@ -6,10 +6,16 @@ import {
   finalityLabel,
   protocolName,
 } from '@/features/data/labels.ts';
-import { isDataStatus, isDataSwaps, isDataTransactionDetail } from '@/lib/api/guards.ts';
+import {
+  isDataDecoders,
+  isDataStatus,
+  isDataSwaps,
+  isDataTransactionDetail,
+} from '@/lib/api/guards.ts';
 import { formatSignedBaseUnits, formatTokenAmount, MINUS, shortId } from '@/lib/format/number.ts';
 
 import {
+  dataDecoders,
   dataStatus,
   dataSwaps,
   dataTransaction,
@@ -74,6 +80,12 @@ describe('data engine contract guards', () => {
       items: [{ ...first, input: { ...first.input, amount: 500000000 } }],
     };
     expect(isDataSwaps(broken)).toBe(false);
+  });
+
+  it('accept the decoder registry and reject a malformed entry', () => {
+    expect(isDataDecoders(dataDecoders())).toBe(true);
+    const body = dataDecoders();
+    expect(isDataDecoders({ ...body, decoders: [{ id: 'x', protocol: 'X' }] })).toBe(false);
   });
 
   it('reject a status that claims execution capability', () => {

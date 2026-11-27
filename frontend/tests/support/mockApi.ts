@@ -19,6 +19,7 @@ import {
 } from './gatewayFixtures.ts';
 import {
   dataBackfills,
+  dataDecoders,
   dataEvents,
   dataIssues,
   dataStatus,
@@ -234,6 +235,8 @@ async function mockData(page: Page, scenario: Scenario): Promise<void> {
         return variant === 'partial' ? unavailable() : json(route, 200, dataBackfills(variant));
       case 'events':
         return variant === 'partial' ? unavailable() : json(route, 200, dataEvents(variant));
+      case 'decoders':
+        return json(route, 200, dataDecoders());
       default:
         return json(route, 404, {});
     }

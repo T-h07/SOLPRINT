@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import type {
   DataBackfillsResponse,
+  DataDecodersResponse,
   DataEngineStatus,
   DataEventsResponse,
   DataIssuesResponse,
@@ -29,6 +30,7 @@ import type {
 import { type ApiResponse, getJson } from './client.ts';
 import {
   isDataBackfills,
+  isDataDecoders,
   isDataEvents,
   isDataIssues,
   isDataStatus,
@@ -215,6 +217,15 @@ export function useDataEvents() {
   return useQuery<ApiResponse<DataEventsResponse>>(
     dataList('events', '/api/v1/data/events?limit=20', isDataEvents),
   );
+}
+
+/** The decoder registry is fixed for the life of the backend process. */
+export function useDataDecoders() {
+  return useQuery<ApiResponse<DataDecodersResponse>>({
+    queryKey: queryKeys.data('decoders'),
+    queryFn: ({ signal }) => getJson('/api/v1/data/decoders', { signal, guard: isDataDecoders }),
+    staleTime: Infinity,
+  });
 }
 
 const SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;

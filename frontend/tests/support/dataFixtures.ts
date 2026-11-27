@@ -6,6 +6,7 @@
  */
 import type {
   DataBackfillsResponse,
+  DataDecodersResponse,
   DataEngineStatus,
   DataEventsResponse,
   DataIssuesResponse,
@@ -670,5 +671,23 @@ export function dataEvents(v: DataVariant): DataEventsResponse {
             persisted_at: at(i),
           }))
         : [],
+  };
+}
+
+/** The registry is static and needs no database, so every variant returns it. */
+export function dataDecoders(): DataDecodersResponse {
+  const d = (id: string, protocol: string, program_id: string) => ({ id, protocol, program_id });
+  return {
+    decoder_version: 'de-2026.11.1',
+    network: 'solana-mainnet',
+    decoders: [
+      d('jupiter_v6', 'JUPITER', 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4'),
+      d('pump_fun', 'PUMP_FUN', '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'),
+      d('pumpswap', 'PUMPSWAP', 'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA'),
+      d('raydium_amm_v4', 'RAYDIUM_AMM_V4', '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8'),
+      d('raydium_cpmm', 'RAYDIUM_CPMM', 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C'),
+      d('raydium_clmm', 'RAYDIUM_CLMM', 'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK'),
+      d('orca_whirlpool', 'ORCA_WHIRLPOOL', 'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc'),
+    ],
   };
 }

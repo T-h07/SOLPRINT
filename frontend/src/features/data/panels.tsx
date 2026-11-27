@@ -16,6 +16,7 @@ import { TBody, THead, Table, Td, Th, Tr } from '@/components/ui/Table.tsx';
 import {
   DATA_LIST_STALE_AFTER_MS,
   useDataBackfills,
+  useDataDecoders,
   useDataEvents,
   useDataIssues,
   useDataStatus,
@@ -851,10 +852,10 @@ export function BackfillsPanel({ className }: { className?: string }) {
               <Th numeric className="hidden sm:table-cell">
                 Pages
               </Th>
-              <Th numeric className="hidden md:table-cell">
+              <Th numeric className="hidden md:table-cell xl:hidden">
                 Queued · dup
               </Th>
-              <Th numeric className="hidden lg:table-cell">
+              <Th numeric className="hidden lg:table-cell xl:hidden">
                 Credits
               </Th>
             </Tr>
@@ -882,11 +883,15 @@ export function BackfillsPanel({ className }: { className?: string }) {
                     </Td>
                     <Td numeric className="hidden sm:table-cell">
                       {n(b.pages_fetched)} / {n(b.max_pages)}
+                      {/* At xl the pane is one third wide: counts fold under pages. */}
+                      <span className="hidden text-xs text-fg-muted xl:block">
+                        {n(b.queued_count)} queued · {n(b.credits_spent)} cr
+                      </span>
                     </Td>
-                    <Td numeric className="hidden md:table-cell">
+                    <Td numeric className="hidden md:table-cell xl:hidden">
                       {n(b.queued_count)} · {n(b.duplicate_count)}
                     </Td>
-                    <Td numeric className="hidden lg:table-cell">
+                    <Td numeric className="hidden lg:table-cell xl:hidden">
                       {n(b.credits_spent)}{' '}
                       <span className="text-fg-muted">/ est. {n(b.credits_estimated)}</span>
                     </Td>
@@ -959,6 +964,64 @@ export function EventsPanel({ className }: { className?: string }) {
             )}
           </TBody>
         </Table>
+      )}
+    </Panel>
+  );
+}
+
+// ---------------------------------------------------------------- decoders
+
+/**
+ * Decoder coverage: the programs this build decodes, by verified program id.
+ * Instructions of any other program are stored with their evidence and an
+ * explicit unsupported status; they are never classified by guesswork.
+ */
+export function DecodersPanel({ className }: { className?: string }) {
+  const { data, loading, error, retry } = useApi(useDataDecoders());
+  const items = data?.decoders ?? [];
+  return (
+    <Panel
+      title="Decoder coverage"
+      flush
+      className={className}
+      meta={data ? <span className="font-mono text-2xs">{data.decoder_version}</span> : null}
+    >
+      {error && !data ? (
+        <div className="p-3">
+          <LoadFailure what="Decoder coverage" failure={error} onRetry={retry} />
+        </div>
+      ) : data && items.length === 0 ? (
+        <div className="p-3">
+          <DataState kind="empty" title="No decoders registered." />
+        </div>
+      ) : (
+        <>
+          <Table label="Decoded programs">
+            <THead>
+              <Tr>
+                <Th>Protocol</Th>
+                <Th>Program</Th>
+              </Tr>
+            </THead>
+            <TBody>
+              {loading || !data ? (
+                <RowsSkeleton cols={2} rows={4} />
+              ) : (
+                items.map((d) => (
+                  <Tr key={d.id}>
+                    <Td>{protocolName(d.protocol)}</Td>
+                    <Td>
+                      <Id value={d.program_id} />
+                    </Td>
+                  </Tr>
+                ))
+              )}
+            </TBody>
+          </Table>
+          <p className="m-0 border-t border-line-subtle px-3 py-2 text-xs text-fg-muted">
+            Other programs are stored with their evidence as unsupported, never guessed.
+          </p>
+        </>
       )}
     </Panel>
   );

@@ -151,8 +151,9 @@ the `solprint data-engine` CLI).
 | Swaps (3 cols) | time (opens the inspector), protocol, wallet with attribution, input and output amounts, out-per-in ratio (≥ 1440 px), decode status with finality | protocol filter (`Select`); below 480 px the amounts stack under the time; retracted swaps say `retracted` and the reason is in the inspector; footnote states that no USD values are shown while price enrichment is off |
 | Transactions (2 cols) | signature (opens the inspector), slot, protocols, decode status, finality, swaps, fee | failed-on-chain is text, not colour |
 | Data quality | open issues by severity, latest issues with code and detail | |
-| Targets (2 cols), Backfills | ingestion targets with coverage and priority; bounded backfills with status and pause reason | empty states say that targets and backfills are only created by the owner |
-| Domain events (3 cols) | outbox sequence, event type, quality, aggregate, delivery | |
+| Targets (2 cols), Backfills | ingestion targets with coverage and priority; bounded backfills with status and pause reason, pages, queued and duplicate counts, credits | empty states say that targets and backfills are only created by the owner; at ≥ 1200 px the one-third-width Backfills pane folds queued and credits under the page count instead of adding columns |
+| Domain events (2 cols) | outbox sequence, event type, quality, aggregate, delivery | |
+| Decoder coverage | protocol and verified program id of every registered decoder; decoder version in the header | the registry needs no database, so it stays visible when PostgreSQL is down; a footnote says other programs are stored with their evidence as unsupported |
 
 Transaction inspector (`Drawer`): summary, swaps (venue, status, attribution, sent and
 received, ratio, route completeness, USD state, route legs and fees in raw units),
