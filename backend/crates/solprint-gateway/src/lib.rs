@@ -40,6 +40,6 @@ pub use settings::GatewaySettings;
 pub use snapshot::GatewaySnapshot;
 pub use store::{GatewayStore, MemoryStore};
 pub use traits::{
-    BlockchainProvider, BlockchainStreamProvider, MarketDataProvider, SwapQuoteProvider,
-    TokenMetadataProvider, TokenPriceProvider,
+    BlockchainProvider, BlockchainStreamProvider, MarketDataProvider, MarketDiscoveryProvider,
+    SwapQuoteProvider, TokenMetadataProvider, TokenPriceProvider,
 };

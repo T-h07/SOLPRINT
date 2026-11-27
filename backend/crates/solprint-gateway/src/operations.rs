@@ -20,6 +20,8 @@ pub const GET_SIGNATURE_STATUSES: &str = "getSignatureStatuses";
 pub const JUP_PRICE: &str = "jupiter.price";
 pub const JUP_TOKENS_SEARCH: &str = "jupiter.tokens.search";
 pub const JUP_QUOTE: &str = "jupiter.quote";
+pub const JUP_TOKENS_CATEGORY: &str = "jupiter.tokens.category";
+pub const JUP_TOKENS_RECENT: &str = "jupiter.tokens.recent";
 
 pub const DEX_TOKENS: &str = "dex.tokens";
 pub const DEX_TOKEN_PAIRS: &str = "dex.token_pairs";
@@ -52,6 +54,8 @@ pub const ALL: &[&str] = &[
     JUP_PRICE,
     JUP_TOKENS_SEARCH,
     JUP_QUOTE,
+    JUP_TOKENS_CATEGORY,
+    JUP_TOKENS_RECENT,
     DEX_TOKENS,
     DEX_TOKEN_PAIRS,
     DEX_PAIR,
