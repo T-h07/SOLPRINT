@@ -84,6 +84,7 @@ pub struct Config {
     pub providers: ProviderConfig,
     pub gateway: GatewayConfig,
     pub data_engine: DataEngineConfig,
+    pub radar: RadarConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -225,6 +226,69 @@ pub struct DataEngineConfig {
     pub evidence_retention_days: u32,
     pub job_retention_days: u32,
     pub outbox_retention_days: u32,
+}
+
+/// RADAR settings (Phase 03). Every count is a ceiling, never a target, and
+/// every threshold is an experimental engineering default, not a validated
+/// trading parameter. Effective limits are the stricter of these, the DATA
+/// ENGINE's and GATEWAY's.
+#[derive(Debug, Clone)]
+pub struct RadarConfig {
+    /// Local RADAR work (event consumption, screening, scoring, API).
+    pub enabled: bool,
+    /// Autonomous market discovery and provider-backed sampling and history.
+    /// **Off by default**: turning it on is the owner's explicit opt-in to
+    /// spend provider credits on discovery.
+    pub auto_discovery_enabled: bool,
+    pub market_discovery_interval: Duration,
+    pub candidate_reevaluation_interval: Duration,
+    pub registry_maintenance_interval: Duration,
+    pub max_market_targets: u32,
+    pub max_active_market_targets: u32,
+    pub max_market_samples_per_cycle: u32,
+    pub max_active_candidates: u32,
+    pub max_investigating_candidates: u32,
+    pub max_live_monitored_wallets: u32,
+    pub max_concurrent_sample_jobs: u32,
+    pub max_concurrent_history_jobs: u32,
+    pub max_pending_jobs: u32,
+    pub initial_sample_signatures: u32,
+    pub expanded_sample_signatures: u32,
+    pub history_stage_a_days: u32,
+    pub history_stage_a_signatures: u32,
+    pub history_stage_b_days: u32,
+    pub history_stage_b_signatures: u32,
+    pub history_stage_c_days: u32,
+    pub history_stage_c_signatures: u32,
+    /// Ceiling on RADAR's share of the currently available normal provider
+    /// allowance, in basis points (not extra credits).
+    pub normal_budget_share_bps: u32,
+    /// Scheduling shares (basis points, sum 10 000): active established,
+    /// emerging, existing Data Engine activity, historical, exploration.
+    pub share_established_bps: u32,
+    pub share_emerging_bps: u32,
+    pub share_local_activity_bps: u32,
+    pub share_historical_bps: u32,
+    pub share_exploration_bps: u32,
+    pub min_pool_liquidity_usd: u64,
+    pub min_volume_24h_usd: u64,
+    /// Minimum reported transactions in the **1-hour** window.
+    pub min_txns_1h: u32,
+    pub max_market_observation_age: Duration,
+    pub min_qualifying_swaps: u32,
+    pub min_distinct_trading_days: u32,
+    pub min_matched_outcomes: u32,
+    pub min_matched_coverage_bps: u32,
+    pub qualification_max_inactive_days: u32,
+    pub activity_half_life_days: u32,
+    pub reduce_monitoring_after_days: u32,
+    pub dormant_after_days: u32,
+    pub archive_after_days: u32,
+    pub monitoring_min_duration: Duration,
+    pub monitoring_cooldown: Duration,
+    pub market_observation_retention_days: u32,
+    pub snapshot_retention_days: u32,
+    pub job_retention_days: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -532,6 +596,8 @@ impl Config {
         let de_job_days = r.range("DATA_ENGINE_JOB_RETENTION_DAYS", 14, 1, 365);
         let de_outbox_days = r.range("DATA_ENGINE_OUTBOX_RETENTION_DAYS", 7, 1, 365);
 
+        let radar = read_radar(&mut r, de_backfills, de_targets);
+
         if !r.issues.is_empty() {
             return Err(ConfigError::Invalid(r.issues));
         }
@@ -653,6 +719,7 @@ impl Config {
                 job_retention_days: to_u32(de_job_days),
                 outbox_retention_days: to_u32(de_outbox_days),
             },
+            radar,
         })
     }
 
@@ -676,7 +743,7 @@ impl fmt::Display for SafeSummary<'_> {
              trading_mode={} live_trading_enabled={} helius_key={} jupiter_key={} \
              dexscreener={} fallback_rpc={} gateway={} streams={} \
              helius_credits={}/month reserve={}% data_engine={} auto_ingest={} \
-             commitment={}",
+             commitment={} radar={} radar_auto_discovery={}",
             c.app.env.as_str(),
             c.app.host,
             c.app.port,
@@ -698,7 +765,173 @@ impl fmt::Display for SafeSummary<'_> {
             c.data_engine.enabled,
             c.data_engine.auto_ingest_enabled,
             c.data_engine.default_commitment.as_str(),
+            c.radar.enabled,
+            c.radar.auto_discovery_enabled,
         )
+    }
+}
+
+/// Read and cross-validate the RADAR keys. `de_backfills` and `de_targets`
+/// are the DATA ENGINE limits RADAR's own ceilings must fit inside.
+fn read_radar<F: Fn(&str) -> Option<String>>(
+    r: &mut Reader<'_, F>,
+    de_backfills: u64,
+    de_targets: u64,
+) -> RadarConfig {
+    let secs = Duration::from_secs;
+    let enabled = r.bool("RADAR_ENABLED", true);
+    let auto = r.bool("RADAR_AUTO_DISCOVERY_ENABLED", false);
+    let discovery = r.range("RADAR_MARKET_DISCOVERY_INTERVAL_SECS", 300, 60, 86_400);
+    let reeval = r.range("RADAR_CANDIDATE_REEVALUATION_INTERVAL_SECS", 900, 60, 86_400);
+    let maint = r.range("RADAR_REGISTRY_MAINTENANCE_INTERVAL_SECS", 3_600, 60, 86_400);
+    let markets = r.range("RADAR_MAX_MARKET_TARGETS", 100, 1, 1_000);
+    let active_markets = r.range("RADAR_MAX_ACTIVE_MARKET_TARGETS", 20, 1, 200);
+    if active_markets > markets {
+        r.issue(
+            "RADAR_MAX_ACTIVE_MARKET_TARGETS",
+            "must not exceed RADAR_MAX_MARKET_TARGETS",
+        );
+    }
+    let samples_per_cycle = r.range("RADAR_MAX_MARKET_SAMPLES_PER_CYCLE", 5, 1, 50);
+    let candidates = r.range("RADAR_MAX_ACTIVE_CANDIDATES", 500, 1, 10_000);
+    let investigating = r.range("RADAR_MAX_INVESTIGATING_CANDIDATES", 25, 1, 500);
+    if investigating > candidates {
+        r.issue(
+            "RADAR_MAX_INVESTIGATING_CANDIDATES",
+            "must not exceed RADAR_MAX_ACTIVE_CANDIDATES",
+        );
+    }
+    let live = r.range("RADAR_MAX_LIVE_MONITORED_WALLETS", 10, 0, 100);
+    if live > de_targets {
+        r.issue(
+            "RADAR_MAX_LIVE_MONITORED_WALLETS",
+            "must not exceed DATA_ENGINE_MAX_ACTIVE_TARGETS",
+        );
+    }
+    let sample_jobs = r.range("RADAR_MAX_CONCURRENT_SAMPLE_JOBS", 2, 1, 8);
+    let history_jobs = r.range("RADAR_MAX_CONCURRENT_HISTORY_JOBS", 2, 1, 8);
+    if history_jobs > de_backfills.max(1) * 2 {
+        r.issue(
+            "RADAR_MAX_CONCURRENT_HISTORY_JOBS",
+            "must not exceed twice DATA_ENGINE_MAX_CONCURRENT_BACKFILLS",
+        );
+    }
+    let pending = r.range("RADAR_MAX_PENDING_JOBS", 1_000, 10, 100_000);
+    let s_init = r.range("RADAR_INITIAL_SAMPLE_SIGNATURES", 25, 1, 1_000);
+    let s_exp = r.range("RADAR_EXPANDED_SAMPLE_SIGNATURES", 100, 1, 1_000);
+    if s_init > s_exp {
+        r.issue(
+            "RADAR_INITIAL_SAMPLE_SIGNATURES",
+            "must not exceed RADAR_EXPANDED_SAMPLE_SIGNATURES",
+        );
+    }
+    let a_days = r.range("RADAR_INITIAL_HISTORY_DAYS", 7, 1, 365);
+    let a_sigs = r.range("RADAR_INITIAL_HISTORY_MAX_SIGNATURES", 50, 1, 10_000);
+    let b_days = r.range("RADAR_EXPANDED_HISTORY_DAYS", 30, 1, 365);
+    let b_sigs = r.range("RADAR_EXPANDED_HISTORY_MAX_SIGNATURES", 200, 1, 10_000);
+    let c_days = r.range("RADAR_EXTENDED_HISTORY_DAYS", 90, 1, 365);
+    let c_sigs = r.range("RADAR_EXTENDED_HISTORY_MAX_SIGNATURES", 500, 1, 10_000);
+    if !(a_days <= b_days && b_days <= c_days) {
+        r.issue(
+            "RADAR_EXPANDED_HISTORY_DAYS",
+            "history stages must not shrink (A <= B <= C days)",
+        );
+    }
+    if !(a_sigs <= b_sigs && b_sigs <= c_sigs) {
+        r.issue(
+            "RADAR_EXPANDED_HISTORY_MAX_SIGNATURES",
+            "history stages must not shrink (A <= B <= C signatures)",
+        );
+    }
+    let share = r.range("RADAR_NORMAL_BUDGET_SHARE_BPS", 4_000, 0, 10_000);
+    let est = r.range("RADAR_SHARE_ESTABLISHED_BPS", 3_500, 0, 10_000);
+    let emg = r.range("RADAR_SHARE_EMERGING_BPS", 2_500, 0, 10_000);
+    let loc = r.range("RADAR_SHARE_LOCAL_ACTIVITY_BPS", 2_000, 0, 10_000);
+    let his = r.range("RADAR_SHARE_HISTORICAL_BPS", 1_000, 0, 10_000);
+    let exp = r.range("RADAR_SHARE_EXPLORATION_BPS", 1_000, 0, 10_000);
+    if est + emg + loc + his + exp != 10_000 {
+        r.issue(
+            "RADAR_SHARE_EXPLORATION_BPS",
+            "the five RADAR_SHARE_*_BPS values must sum to 10000",
+        );
+    }
+    if exp < 500 {
+        r.issue(
+            "RADAR_SHARE_EXPLORATION_BPS",
+            "exploration must keep at least 500 bps (starvation floor)",
+        );
+    }
+    let liq = r.range("RADAR_MIN_POOL_LIQUIDITY_USD", 5_000, 0, 1_000_000_000);
+    let vol = r.range("RADAR_MIN_VOLUME_24H_USD", 10_000, 0, 1_000_000_000);
+    let txns = r.range("RADAR_MIN_TXNS_1H", 20, 0, 1_000_000);
+    let age = r.range("RADAR_MAX_MARKET_OBSERVATION_AGE_SECS", 300, 30, 86_400);
+    let q_swaps = r.range("RADAR_MIN_QUALIFYING_SWAPS", 10, 1, 10_000);
+    let q_days = r.range("RADAR_MIN_DISTINCT_TRADING_DAYS", 3, 1, 365);
+    let q_out = r.range("RADAR_MIN_MATCHED_OUTCOMES", 3, 1, 10_000);
+    let q_cov = r.range("RADAR_MIN_MATCHED_COVERAGE_BPS", 6_000, 0, 10_000);
+    let q_inactive = r.range("RADAR_QUALIFICATION_MAX_INACTIVE_DAYS", 7, 1, 365);
+    let half_life = r.range("RADAR_ACTIVITY_HALF_LIFE_DAYS", 7, 1, 365);
+    let reduce = r.range("RADAR_REDUCE_MONITORING_AFTER_DAYS", 7, 1, 365);
+    let dormant = r.range("RADAR_DORMANT_AFTER_DAYS", 14, 1, 365);
+    let archive = r.range("RADAR_ARCHIVE_AFTER_DAYS", 60, 1, 3_650);
+    if !(reduce <= dormant && dormant < archive) {
+        r.issue(
+            "RADAR_DORMANT_AFTER_DAYS",
+            "requires REDUCE_MONITORING <= DORMANT < ARCHIVE days",
+        );
+    }
+    let mon_min = r.range("RADAR_MONITORING_MIN_DURATION_SECS", 3_600, 60, 604_800);
+    let mon_cool = r.range("RADAR_MONITORING_COOLDOWN_SECS", 3_600, 60, 604_800);
+    let obs_days = r.range("RADAR_MARKET_OBSERVATION_RETENTION_DAYS", 30, 1, 3_650);
+    let snap_days = r.range("RADAR_SNAPSHOT_RETENTION_DAYS", 90, 1, 3_650);
+    let job_days = r.range("RADAR_JOB_RETENTION_DAYS", 30, 1, 3_650);
+    RadarConfig {
+        enabled,
+        auto_discovery_enabled: auto,
+        market_discovery_interval: secs(discovery),
+        candidate_reevaluation_interval: secs(reeval),
+        registry_maintenance_interval: secs(maint),
+        max_market_targets: to_u32(markets),
+        max_active_market_targets: to_u32(active_markets),
+        max_market_samples_per_cycle: to_u32(samples_per_cycle),
+        max_active_candidates: to_u32(candidates),
+        max_investigating_candidates: to_u32(investigating),
+        max_live_monitored_wallets: to_u32(live),
+        max_concurrent_sample_jobs: to_u32(sample_jobs),
+        max_concurrent_history_jobs: to_u32(history_jobs),
+        max_pending_jobs: to_u32(pending),
+        initial_sample_signatures: to_u32(s_init),
+        expanded_sample_signatures: to_u32(s_exp),
+        history_stage_a_days: to_u32(a_days),
+        history_stage_a_signatures: to_u32(a_sigs),
+        history_stage_b_days: to_u32(b_days),
+        history_stage_b_signatures: to_u32(b_sigs),
+        history_stage_c_days: to_u32(c_days),
+        history_stage_c_signatures: to_u32(c_sigs),
+        normal_budget_share_bps: to_u32(share),
+        share_established_bps: to_u32(est),
+        share_emerging_bps: to_u32(emg),
+        share_local_activity_bps: to_u32(loc),
+        share_historical_bps: to_u32(his),
+        share_exploration_bps: to_u32(exp),
+        min_pool_liquidity_usd: liq,
+        min_volume_24h_usd: vol,
+        min_txns_1h: to_u32(txns),
+        max_market_observation_age: secs(age),
+        min_qualifying_swaps: to_u32(q_swaps),
+        min_distinct_trading_days: to_u32(q_days),
+        min_matched_outcomes: to_u32(q_out),
+        min_matched_coverage_bps: to_u32(q_cov),
+        qualification_max_inactive_days: to_u32(q_inactive),
+        activity_half_life_days: to_u32(half_life),
+        reduce_monitoring_after_days: to_u32(reduce),
+        dormant_after_days: to_u32(dormant),
+        archive_after_days: to_u32(archive),
+        monitoring_min_duration: secs(mon_min),
+        monitoring_cooldown: secs(mon_cool),
+        market_observation_retention_days: to_u32(obs_days),
+        snapshot_retention_days: to_u32(snap_days),
+        job_retention_days: to_u32(job_days),
     }
 }
 
@@ -893,6 +1126,73 @@ mod tests {
         assert!(d.fetch_concurrency <= c.gateway.helius.max_in_flight);
         assert!(d.max_active_targets <= c.gateway.helius.ws_max_subscriptions);
         assert!(d.evidence_max_bytes <= c.gateway.max_response_bytes);
+    }
+
+    #[test]
+    fn radar_defaults_are_conservative_and_discovery_is_opt_in() {
+        let c = cfg(&[]).unwrap();
+        let r = &c.radar;
+        assert!(r.enabled);
+        assert!(
+            !r.auto_discovery_enabled,
+            "provider-backed discovery must be opt-in"
+        );
+        assert_eq!(r.normal_budget_share_bps, 4_000);
+        assert_eq!(
+            r.share_established_bps
+                + r.share_emerging_bps
+                + r.share_local_activity_bps
+                + r.share_historical_bps
+                + r.share_exploration_bps,
+            10_000
+        );
+        assert!(r.max_live_monitored_wallets as usize <= c.data_engine.max_active_targets);
+        assert!(r.history_stage_a_signatures <= r.history_stage_b_signatures);
+        assert!(r.dormant_after_days < r.archive_after_days);
+    }
+
+    #[test]
+    fn radar_rejects_inconsistent_limits() {
+        for (pairs, key) in [
+            (
+                vec![("RADAR_SHARE_EXPLORATION_BPS", "2000")],
+                "RADAR_SHARE_EXPLORATION_BPS",
+            ),
+            (
+                vec![
+                    ("RADAR_SHARE_EXPLORATION_BPS", "0"),
+                    ("RADAR_SHARE_ESTABLISHED_BPS", "4500"),
+                ],
+                "RADAR_SHARE_EXPLORATION_BPS",
+            ),
+            (
+                vec![("RADAR_MAX_ACTIVE_MARKET_TARGETS", "150")],
+                "RADAR_MAX_ACTIVE_MARKET_TARGETS",
+            ),
+            (
+                vec![("RADAR_MAX_LIVE_MONITORED_WALLETS", "30")],
+                "RADAR_MAX_LIVE_MONITORED_WALLETS",
+            ),
+            (
+                vec![("RADAR_INITIAL_HISTORY_MAX_SIGNATURES", "300")],
+                "RADAR_EXPANDED_HISTORY_MAX_SIGNATURES",
+            ),
+            (
+                vec![("RADAR_DORMANT_AFTER_DAYS", "90")],
+                "RADAR_DORMANT_AFTER_DAYS",
+            ),
+            (
+                vec![("RADAR_NORMAL_BUDGET_SHARE_BPS", "10001")],
+                "RADAR_NORMAL_BUDGET_SHARE_BPS",
+            ),
+            (
+                vec![("RADAR_MARKET_DISCOVERY_INTERVAL_SECS", "5")],
+                "RADAR_MARKET_DISCOVERY_INTERVAL_SECS",
+            ),
+        ] {
+            let err = cfg(&pairs).unwrap_err().to_string();
+            assert!(err.contains(key), "{pairs:?}: {err}");
+        }
     }
 
     #[test]
