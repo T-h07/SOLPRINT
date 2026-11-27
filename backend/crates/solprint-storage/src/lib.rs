@@ -20,6 +20,7 @@ use sqlx::types::Uuid;
 use sqlx::{ConnectOptions, Row};
 use tokio::time::{Instant, sleep, timeout};
 
+pub mod data_engine;
 pub mod gateway;
 #[cfg(feature = "test-support")]
 pub mod test_support;

@@ -114,7 +114,7 @@ test.describe('navigation and keyboard', () => {
 });
 
 test.describe('accessibility (axe, WCAG 2.2 AA)', () => {
-  for (const path of ['/', '/gateway', '/system', '/design-system', '/does-not-exist']) {
+  for (const path of ['/', '/gateway', '/data', '/system', '/design-system', '/does-not-exist']) {
     test(`no violations on ${path}`, async ({ page }) => {
       await mockBackend(page, 'healthy');
       await page.goto(path);
@@ -142,7 +142,7 @@ test.describe('accessibility (axe, WCAG 2.2 AA)', () => {
 
 test.describe('responsive layout', () => {
   for (const vp of VIEWPORTS) {
-    for (const path of ['/', '/gateway', '/system', '/design-system']) {
+    for (const path of ['/', '/gateway', '/data', '/system', '/design-system']) {
       test(`no horizontal overflow at ${vp.name} on ${path}`, async ({ page }) => {
         await page.setViewportSize({ width: vp.width, height: vp.height });
         await mockBackend(page, 'healthy');
@@ -211,5 +211,126 @@ test.describe('gateway workspace', () => {
     await page.goto('/gateway');
     await expect(page.getByText(/credit budget unavailable/i)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Retry' }).first()).toBeVisible();
+  });
+});
+
+test.describe('data engine workspace', () => {
+  test('swaps render exact amounts, attribution and finality as text', async ({ page }) => {
+    const errors = trackErrors(page);
+    await mockBackend(page, 'healthy');
+    await page.goto('/data');
+    await settle(page);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Data engine');
+    const swaps = page.getByRole('region', { name: 'Normalized swaps, newest first' });
+    // BigInt formatting: 0.5 SOL in, 17,000,000 tokens (6 decimals) out.
+    await expect(swaps.getByText('0.5000').filter({ visible: true }).first()).toBeVisible();
+    await expect(
+      swaps.getByText('17,000,000.0000').filter({ visible: true }).first(),
+    ).toBeVisible();
+    // Unknown output amount is a dash, never zero.
+    await expect(swaps.getByText('Insufficient evidence')).toBeVisible();
+    // Program-controlled swap carries no wallet; finality states are words.
+    await expect(swaps.getByText('Program', { exact: true })).toBeVisible();
+    await expect(swaps.getByText('Finality unknown')).toBeVisible();
+    await expect(swaps.getByText(/retracted/i)).toBeVisible();
+    // Read-only and no USD valuation are stated.
+    await expect(page.getByText(/read-only decoding/i)).toBeVisible();
+    await expect(page.getByText(/no USD values are shown/i)).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test('decoder coverage lists every decoded program, even with the database down', async ({
+    page,
+  }) => {
+    await mockBackend(page, 'database-down');
+    await page.goto('/data');
+    await settle(page);
+    const coverage = page.getByRole('region', { name: 'Decoded programs' });
+    await expect(coverage.locator('tbody tr')).toHaveCount(7);
+    for (const name of [
+      'Jupiter',
+      'Pump.fun',
+      'PumpSwap',
+      'Raydium AMM v4',
+      'Raydium CPMM',
+      'Raydium CLMM',
+      'Orca Whirlpool',
+    ]) {
+      await expect(coverage.getByText(name, { exact: true })).toBeVisible();
+    }
+    await expect(page.getByText(/stored with their evidence as unsupported/i)).toBeVisible();
+    await expect(page.getByText('de-2026.11.1').first()).toBeVisible();
+  });
+
+  test('protocol filter narrows the swap list', async ({ page }) => {
+    await mockBackend(page, 'healthy');
+    await page.goto('/data');
+    await settle(page);
+    await page.getByLabel('Filter swaps by protocol').selectOption('PUMP_FUN');
+    const swaps = page.getByRole('region', { name: 'Normalized swaps, newest first' });
+    await expect(swaps.locator('tbody tr')).toHaveCount(1);
+    await expect(swaps.getByText('Pump.fun').first()).toBeAttached();
+  });
+
+  test('inspector opens by keyboard, shows evidence and returns focus on Esc', async ({ page }) => {
+    await mockBackend(page, 'healthy');
+    await page.goto('/data');
+    await settle(page);
+    const trigger = page
+      .getByRole('region', { name: 'Decoded transactions, newest first' })
+      .getByRole('button')
+      .first();
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+    const dialog = page.getByRole('dialog', { name: 'Transaction' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator('[aria-busy="true"]')).toHaveCount(0);
+    await expect(dialog.getByText(/sha256/)).toBeVisible();
+    // Signed SOL delta with U+2212 minus.
+    await expect(dialog.getByText('−0.502105000')).toBeVisible();
+    await expect(dialog.getByText(/inferred created/i)).toBeVisible();
+    expect(await axe(page)).toEqual([]);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(trigger).toBeFocused();
+  });
+
+  test('empty engine explains why nothing is shown', async ({ page }) => {
+    await mockBackend(page, 'data-empty');
+    await page.goto('/data');
+    await settle(page);
+    await expect(page.getByText('No swaps recorded yet.')).toBeVisible();
+    await expect(page.getByText('No ingestion targets configured.')).toBeVisible();
+    await expect(page.getByText(/none are created automatically/i)).toBeVisible();
+    expect(await axe(page)).toEqual([]);
+  });
+
+  test('database down: totals are partial and lists name the database', async ({ page }) => {
+    await mockBackend(page, 'database-down');
+    await page.goto('/data');
+    await settle(page);
+    await expect(page.getByText(/stored totals unavailable/i)).toBeVisible();
+    await expect(
+      page.getByText(/swaps unavailable: the backend could not read its database/i),
+    ).toBeVisible();
+    await expect(page.getByText('database unavailable').first()).toBeVisible();
+    expect(await axe(page)).toEqual([]);
+  });
+
+  test('offline: panes report the backend failure with a safe retry', async ({ page }) => {
+    await mockBackend(page, 'offline');
+    await page.goto('/data');
+    await expect(
+      page.getByText(/data engine state unavailable: backend unreachable/i),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Retry' }).first()).toBeVisible();
+  });
+
+  test('loading: skeletons only, no values', async ({ page }) => {
+    await mockBackend(page, 'loading');
+    await page.goto('/data');
+    await expect(page.locator('[aria-busy="true"]').first()).toBeVisible();
+    await expect(page.getByText('0.5000')).toHaveCount(0);
+    expect(await axe(page)).toEqual([]);
   });
 });

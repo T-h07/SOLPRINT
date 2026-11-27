@@ -23,6 +23,9 @@ a full pass). SOLPRINT uses no hosted CI/CD.
 | Container-free checks on the working tree | `./scripts/check.ps1` | — |
 | GATEWAY overhead benchmarks | `cd backend; cargo bench -p solprint-gateway` | — |
 | GATEWAY diagnostics (offline / live opt-in) | `./scripts/gateway-diagnostics.ps1 [-Live]` | `.env`; `-Live` contacts providers |
+| DATA ENGINE decode/write-set benchmarks | `cd backend; cargo bench -p solprint-data-engine` | — |
+| DATA ENGINE fixtures (offline, no database) | `cd backend; cargo run --bin solprint -- data-engine decode-fixture` | — |
+| DATA ENGINE diagnostics (offline / live opt-in) | `./scripts/data-engine-diagnostics.ps1 [-Live -Signature <SIG>]` | `.env`; `-Live` sends one `getTransaction` |
 
 ## Database tests never touch your data
 
@@ -73,6 +76,68 @@ No test contacts a real provider. Providers are loopback mock servers (axum for 
   upserts, usage/metric accumulation and pruning, checkpoint constraints.
 * `solprint-api/tests/http.rs`: every `/api/v1/gateway/*` endpoint answers from local
   state, malformed queries are rejected, no secret appears in any response.
+
+## DATA ENGINE coverage (Phase 02)
+
+No test contacts a real provider. Inputs are 17 synthetic fixtures
+(`src/fixtures.rs`, one per decoder and per edge case), each with its expected outcome.
+They are built from the programs' published layouts and are **not** captured mainnet
+transactions ([DECODER_CAPABILITIES.md](../architecture/DECODER_CAPABILITIES.md)).
+
+* Unit (`src/**`):
+  * reconstruction: account order and signer/writable flags, the CPI tree from stack
+    heights, and missing metadata reported rather than guessed;
+  * evidence validation: non-JSON, unknown versions and missing `meta`;
+  * borsh readers, discriminators checked against their preimages and the official
+    Pump.fun IDL arrays, and program ids;
+  * exact deltas, ratios and values;
+  * every fixture decoding to its expected outcome, plus targeted cases: Jupiter route
+    legs, relayer fee payer, program-controlled swaps, failed transactions, Token-2022
+    fees, wrap flows, Pump fees and missing inner instructions;
+  * transfers and liquidity deposits are never swaps, and an unsupported Token-2022
+    extension raises `UNSUPPORTED_TOKEN_EXTENSION`;
+  * write-set schema shapes and retraction events;
+  * backoff and priorities.
+* Property tests (`proptest`): arbitrary bytes and text never panic the borsh reader,
+  evidence parser or ratio, and ratios are always positive.
+* `tests/engine_db.rs` (PostgreSQL, via `test.ps1`, with an in-memory `ChainSource`):
+  * ingest persists once and reprocessing is idempotent;
+  * budget denial releases a job without consuming an attempt;
+  * an unknown transaction is retried and never invented;
+  * finality advances, and a `null` status is never treated as orphaned;
+  * a backfill is bounded, resumable and deduplicated;
+  * every fixture persists within the schema's constraints and reads back, and the
+    verified-trade query (`verified_only`) excludes program-controlled, partially decoded
+    and insufficient-evidence swaps;
+  * invalid evidence is quarantined, and a slot mismatch is not treated as orphaning;
+  * a backfill paused by shutdown and then by the budget resumes from its stored cursor
+    in a new process, without refetching pages, and skips a signature already seen
+    live;
+  * an expired lease (crashed worker) returns its job, which is then processed once;
+    undelivered events are delivered after a restart, and duplicate or late
+    acknowledgements never undo a delivery;
+  * out-of-order observations only raise priority, cause one retrieval, and never
+    regress finality;
+  * stream `GAP` and `CONTINUITY_UNKNOWN` events stay open as target issues, and live
+    logs become jobs;
+  * a full queue refuses intake with `QUEUE_SATURATED` and pauses backfills before any
+    page is fetched; a page-limited backfill reports `PARTIAL_HISTORY` and an open
+    `BACKFILL_INCOMPLETE` issue;
+  * `u64::MAX` amounts and ±`u64::MAX` balance deltas round-trip exactly through the
+    schema;
+  * corrected (finalized) evidence writes revision 2, keeps the superseded evidence,
+    and retracts the swap with `EVIDENCE_REVISION` and a `SwapRetracted` event.
+* `solprint-api/tests/http.rs`: every `/api/v1/data/*` endpoint is listed as read-only.
+  The status degrades truthfully without a database, and reads return a 503 envelope when
+  the database is down.
+* Frontend: `tests/unit/data.test.ts` covers formatting and guards. `tests/ui/shell.spec.ts`
+  (`data engine workspace`) checks exact amounts, attribution and finality as text, the
+  protocol filter, the keyboard inspector (focus returns on Esc), and the empty,
+  database-down (partial), offline and loading states. The visual baselines are `data-*`
+  at 1920/1440/1280/1024/390, and empty and database-down at 1440/390.
+
+Real-provider ingestion (`-Live`) is an owner-run diagnostic and is never part of a
+normal test run.
 
 ## Frontend coverage
 

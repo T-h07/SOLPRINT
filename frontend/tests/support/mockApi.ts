@@ -17,6 +17,18 @@ import {
   gatewayUsage,
   type GatewayVariant,
 } from './gatewayFixtures.ts';
+import {
+  dataBackfills,
+  dataDecoders,
+  dataEvents,
+  dataIssues,
+  dataStatus,
+  dataSwaps,
+  dataTargets,
+  dataTransaction,
+  dataTransactions,
+  type DataVariant,
+} from './dataFixtures.ts';
 
 export const FIXED_NOW = Date.parse('2026-11-26T12:00:00.000Z');
 
@@ -93,11 +105,17 @@ export const versionFixture: VersionInfo = {
 };
 
 export type Scenario =
-  'healthy' | 'database-down' | 'offline' | 'loading' | 'gateway-idle' | 'gateway-pressure';
+  | 'healthy'
+  | 'database-down'
+  | 'offline'
+  | 'loading'
+  | 'gateway-idle'
+  | 'gateway-pressure'
+  | 'data-empty';
 
-/** Scenarios that only change GATEWAY answer like `healthy` elsewhere. */
+/** Scenarios that only change one workspace answer like `healthy` elsewhere. */
 const base = (s: Scenario): 'healthy' | 'database-down' | 'offline' | 'loading' =>
-  s === 'gateway-idle' || s === 'gateway-pressure' ? 'healthy' : s;
+  s === 'gateway-idle' || s === 'gateway-pressure' || s === 'data-empty' ? 'healthy' : s;
 
 const json = (route: Route, status: number, body: unknown) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
@@ -106,6 +124,7 @@ const json = (route: Route, status: number, body: unknown) =>
 export async function mockBackend(page: Page, full: Scenario): Promise<void> {
   await page.clock.setFixedTime(FIXED_NOW);
   await mockGateway(page, full);
+  await mockData(page, full);
   const scenario = base(full);
 
   await page.route('**/health/ready', (route) => {
@@ -172,6 +191,55 @@ async function mockGateway(page: Page, scenario: Scenario): Promise<void> {
     const part = new URL(route.request().url()).pathname.split('/').pop() ?? '';
     const body = bodies[part];
     return body ? json(route, 200, body()) : json(route, 404, {});
+  });
+}
+
+async function mockData(page: Page, scenario: Scenario): Promise<void> {
+  const variant: DataVariant =
+    scenario === 'data-empty' ? 'empty' : scenario === 'database-down' ? 'partial' : 'active';
+  await page.route('**/api/v1/data/**', (route) => {
+    if (scenario === 'offline') {
+      return route.fulfill({ status: 502, contentType: 'text/html', body: 'Bad Gateway' });
+    }
+    if (scenario === 'loading') return new Promise<void>(() => undefined);
+    const url = new URL(route.request().url());
+    const parts = url.pathname.split('/').slice(4);
+    const unavailable = () =>
+      json(route, 503, {
+        error: { code: 'SERVICE_UNAVAILABLE', message: 'Service unavailable.', request_id: null },
+      });
+    switch (parts[0]) {
+      case 'status':
+        return json(route, 200, dataStatus(variant));
+      case 'swaps':
+        return variant === 'partial'
+          ? unavailable()
+          : json(route, 200, dataSwaps(variant, url.searchParams.get('protocol')));
+      case 'transactions': {
+        if (variant === 'partial') return unavailable();
+        if (parts[1]) {
+          const d = dataTransaction(parts[1]);
+          return d
+            ? json(route, 200, d)
+            : json(route, 404, {
+                error: { code: 'NOT_FOUND', message: 'Resource not found.', request_id: null },
+              });
+        }
+        return json(route, 200, dataTransactions(variant));
+      }
+      case 'issues':
+        return variant === 'partial' ? unavailable() : json(route, 200, dataIssues(variant));
+      case 'targets':
+        return variant === 'partial' ? unavailable() : json(route, 200, dataTargets(variant));
+      case 'backfills':
+        return variant === 'partial' ? unavailable() : json(route, 200, dataBackfills(variant));
+      case 'events':
+        return variant === 'partial' ? unavailable() : json(route, 200, dataEvents(variant));
+      case 'decoders':
+        return json(route, 200, dataDecoders());
+      default:
+        return json(route, 404, {});
+    }
   });
 }
 

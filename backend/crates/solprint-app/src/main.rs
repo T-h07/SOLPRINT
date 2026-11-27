@@ -9,14 +9,17 @@
 //! 5. Build GATEWAY (contacts nothing until asked) and start its
 //!    maintenance task (ledger load, usage flush, retention; streams only if
 //!    `GATEWAY_STREAMS_ENABLED=true`).
-//! 6. Bind the HTTP listener and serve.
-//! 7. On SIGINT / SIGTERM (Linux) or Ctrl+C / Ctrl+Break / close (Windows):
-//!    stop accepting, drain in-flight requests, stop GATEWAY (final usage
+//! 6. Start the DATA ENGINE when `DATA_ENGINE_ENABLED=true` (queue workers,
+//!    finality, backfills, outbox; live intake only with auto-ingest).
+//! 7. Bind the HTTP listener and serve.
+//! 8. On SIGINT / SIGTERM (Linux) or Ctrl+C / Ctrl+Break / close (Windows):
+//!    stop accepting, drain in-flight requests, stop the DATA ENGINE, stop GATEWAY (final usage
 //!    flush), close the pool, exit 0.
 //!
-//! Any failure in 1–6 exits non-zero before the listener exists, so the
+//! Any failure in 1–7 exits non-zero before the listener exists, so the
 //! process can never look healthy after a failed initialisation.
 
+mod data_engine_cli;
 mod diagnostics;
 
 use std::net::SocketAddr;
@@ -27,6 +30,8 @@ use std::time::Duration;
 use anyhow::Context;
 use solprint_api::{AppState, BuildInfo};
 use solprint_config::Config;
+use solprint_data_engine::engine::Engine;
+use solprint_data_engine::source::GatewaySource;
 use solprint_gateway::{Gateway, GatewaySettings};
 use solprint_storage::Database;
 use tokio::net::TcpListener;
@@ -50,6 +55,11 @@ fn main() -> ExitCode {
         let live = std::env::args().skip(2).any(|a| a == "--live");
         let fallback = std::env::args().skip(2).any(|a| a == "--include-fallback");
         return diagnostics::run(live, fallback);
+    }
+    // `solprint data-engine <command>`: controlled local operations.
+    if std::env::args().nth(1).as_deref() == Some("data-engine") {
+        let args: Vec<String> = std::env::args().skip(2).collect();
+        return data_engine_cli::run(&args);
     }
 
     // Configuration errors are reported before logging exists, on stderr,
@@ -128,6 +138,28 @@ async fn run(config: Config) -> anyhow::Result<()> {
     let gateway_shutdown = CancellationToken::new();
     let gateway_task = gateway.start(gateway_shutdown.clone());
 
+    // DATA ENGINE: reads chain data only through GATEWAY. Disabled by default.
+    let data_engine_shutdown = CancellationToken::new();
+    let data_engine = config.data_engine.enabled.then(|| {
+        let engine = Arc::new(Engine::new(
+            database.clone(),
+            Arc::new(GatewaySource::new(gateway.clone())),
+            config.data_engine.clone(),
+        ));
+        let handle = solprint_data_engine::engine::start(
+            &engine,
+            gateway.streams().cloned(),
+            &data_engine_shutdown,
+        );
+        tracing::info!(
+            decoder_version = solprint_data_engine::DECODER_VERSION,
+            auto_ingest = config.data_engine.auto_ingest_enabled,
+            backfill = config.data_engine.backfill_enabled,
+            "DATA ENGINE started"
+        );
+        (engine, handle)
+    });
+
     let addr = SocketAddr::new(config.app.host, config.app.port);
     let listener = TcpListener::bind(addr)
         .await
@@ -138,6 +170,9 @@ async fn run(config: Config) -> anyhow::Result<()> {
         gateway.clone(),
         BuildInfo::current(VERSION),
     );
+    if let Some((engine, _)) = &data_engine {
+        state.attach_data_engine(Arc::clone(engine));
+    }
 
     let shutdown = CancellationToken::new();
     let server = tokio::spawn(solprint_api::serve(listener, state, shutdown.clone()));
@@ -165,6 +200,18 @@ async fn run(config: Config) -> anyhow::Result<()> {
             // The server should only stop after cancellation.
             joined.context("server task panicked")?.context("server error")?;
             anyhow::bail!("HTTP server stopped unexpectedly");
+        }
+    }
+
+    // Stop the DATA ENGINE before GATEWAY: in-flight jobs finish or are
+    // released back to the queue without consuming attempts.
+    if let Some((engine, handle)) = data_engine {
+        data_engine_shutdown.cancel();
+        if tokio::time::timeout(SHUTDOWN_GRACE, handle.shutdown(&engine))
+            .await
+            .is_err()
+        {
+            tracing::warn!("DATA ENGINE shutdown timed out; leases expire and are recovered");
         }
     }
 

@@ -15,8 +15,8 @@ use crate::error::GatewayError;
 use crate::gateway::Gateway;
 use crate::models::{
     AccountData, BlockSummary, DexPair, JupiterPrice, LargestTokenAccount, NodeHealth, NodeVersion,
-    QuoteRequest, SignaturePage, SignatureQuery, SwapQuote, TokenAccount, TokenAccountFilter,
-    TokenInfo, TransactionRecord,
+    QuoteRequest, SignaturePage, SignatureQuery, SignatureStatus, SwapQuote, TokenAccount,
+    TokenAccountFilter, TokenInfo, TransactionRecord,
 };
 use crate::stream::{StreamHandle, StreamSnapshot, SubscriptionId, SubscriptionSpec};
 
@@ -57,6 +57,13 @@ pub trait BlockchainProvider: Send + Sync {
         ctx: &RequestContext,
         signature: &TransactionSignature,
     ) -> impl Future<Output = R<Option<TransactionRecord>>> + Send;
+    /// `getSignatureStatuses`; `None` items are unknown, not failed.
+    fn signature_statuses(
+        &self,
+        ctx: &RequestContext,
+        signatures: &[TransactionSignature],
+        search_transaction_history: bool,
+    ) -> impl Future<Output = R<Vec<Option<SignatureStatus>>>> + Send;
     fn token_account_balance(
         &self,
         ctx: &RequestContext,
@@ -189,6 +196,15 @@ impl BlockchainProvider for Gateway {
         signature: &TransactionSignature,
     ) -> R<Option<TransactionRecord>> {
         self.get_transaction(ctx, signature).await
+    }
+    async fn signature_statuses(
+        &self,
+        ctx: &RequestContext,
+        signatures: &[TransactionSignature],
+        search_transaction_history: bool,
+    ) -> R<Vec<Option<SignatureStatus>>> {
+        self.get_signature_statuses(ctx, signatures, search_transaction_history)
+            .await
     }
     async fn token_account_balance(
         &self,

@@ -75,3 +75,47 @@ reconnect or because a consumer fell behind. This is reported on purpose; see
 Docker and re-run. A leftover verification project can be removed with
 `docker compose -p solprint-verify-<sha12> down --volumes --rmi local` (it never touches
 the `solprint` project).
+
+## DATA ENGINE
+
+**The Data workspace is empty.** Nothing is ingested automatically:
+`DATA_ENGINE_AUTO_INGEST_ENABLED` is `false`, and there are no targets until you add one.
+Queue a signature (`solprint data-engine ingest <SIG>`), add a target, or create a
+bounded backfill. Then check `solprint data-engine jobs`.
+
+**Jobs stay `PENDING`.** The engine is disabled (`DATA_ENGINE_ENABLED=false`), Helius
+has no credential, or GATEWAY budget admission is denying the job's priority. Denied
+jobs are released and retried without consuming an attempt. Check the GATEWAY Budget
+pane before changing anything. Do not raise credits above the plan.
+
+**A job ends `UNAVAILABLE` (`TRANSACTION_UNAVAILABLE`).** The provider never returned
+the transaction at the required commitment. The engine does not invent a record. Check
+the signature and the network. Queue it again only if you expect the provider to have
+it now.
+
+**A job is `QUARANTINED`.** The evidence was too large (`EVIDENCE_TOO_LARGE`) or could
+not be reconstructed (`EVIDENCE_PARSE_FAILED` or a specific reconstruction code). The
+issue names the reason. Workers continue with other jobs. Do not raise
+`DATA_ENGINE_EVIDENCE_MAX_BYTES` above `GATEWAY_MAX_RESPONSE_BYTES`.
+
+**A transaction stays `FINALITY_UNKNOWN` or `POSSIBLY_ORPHANED`.** The status cache
+answered `null` or a different slot, and the finalized refetch did not settle it. This
+is reported on purpose. Phase 02 never marks a transaction `ORPHANED` without definitive
+evidence ([FINALITY_AND_RECONCILIATION.md](../architecture/FINALITY_AND_RECONCILIATION.md)).
+
+**A backfill is `PAUSED_BY_BUDGET`, `PAUSED_BY_QUEUE` or `PAUSED_BY_PROVIDER`.** It keeps
+its cursor and resumes when the condition clears. A `PARTIAL_HISTORY` coverage means a
+page or signature limit stopped it. It does not mean the address has no older history.
+
+**A swap shows `INSUFFICIENT_EVIDENCE`, `UNKNOWN_OWNER` or `PROGRAM_CONTROLLED`.** The
+transaction did not prove the amounts or the wallet. These swaps are not counted as
+verified wallet trades
+([WALLET_ATTRIBUTION.md](../architecture/WALLET_ATTRIBUTION.md)).
+
+**Swaps show `NOT_ENRICHED`.** USD valuation is not implemented in Phase 02.
+
+**Decoder output looks wrong after a decoder change.** Run
+`solprint data-engine decode-fixture` (offline). `solprint data-engine reprocess`
+re-decodes stored evidence without provider traffic. It writes a new revision only when
+the decoder version changed (`de-2026.11.1` today). Identical evidence and version are
+left `Unchanged`.

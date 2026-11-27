@@ -83,6 +83,7 @@ pub struct Config {
     pub trading: TradingConfig,
     pub providers: ProviderConfig,
     pub gateway: GatewayConfig,
+    pub data_engine: DataEngineConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -167,6 +168,63 @@ pub struct GatewayConfig {
     pub jupiter: JupiterConfig,
     pub dexscreener: DexScreenerConfig,
     pub fallback: FallbackConfig,
+}
+
+/// Commitment the Data Engine retrieves transactions at. `processed` is not
+/// offered: `getTransaction` does not accept it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetrievalCommitment {
+    Confirmed,
+    Finalized,
+}
+
+impl RetrievalCommitment {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Confirmed => "confirmed",
+            Self::Finalized => "finalized",
+        }
+    }
+}
+
+/// DATA ENGINE settings (Phase 02). Every limit is a local ceiling, not a
+/// statement about what the provider budget can afford.
+#[derive(Debug, Clone)]
+pub struct DataEngineConfig {
+    pub enabled: bool,
+    /// Subscribe enabled targets to live streams at startup (needs
+    /// `GATEWAY_STREAMS_ENABLED=true`). Off by default.
+    pub auto_ingest_enabled: bool,
+    pub max_active_targets: usize,
+    pub fetch_concurrency: usize,
+    pub decode_concurrency: usize,
+    /// Non-terminal ingestion jobs above which backfills pause and live
+    /// intake reports saturation.
+    pub queue_capacity: u64,
+    pub job_lease: Duration,
+    pub job_max_attempts: u32,
+    pub default_commitment: RetrievalCommitment,
+    pub finality_interval: Duration,
+    pub finality_batch_size: usize,
+    pub backfill_enabled: bool,
+    pub max_concurrent_backfills: usize,
+    pub backfill_page_size: u16,
+    pub backfill_max_pages: u32,
+    pub backfill_max_signatures: u32,
+    pub price_enrichment_enabled: bool,
+    pub price_max_age: Duration,
+    pub outbox_batch_size: usize,
+    pub outbox_poll_interval: Duration,
+    /// How long the stored-aggregate snapshot served to monitoring routes is
+    /// reused before it is recomputed.
+    pub metrics_refresh: Duration,
+    pub evidence_max_bytes: usize,
+    /// Raw evidence of finalized transactions older than this is pruned
+    /// (hash and normalized records kept). `0` keeps it indefinitely.
+    pub evidence_retention_days: u32,
+    pub job_retention_days: u32,
+    pub outbox_retention_days: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -415,6 +473,65 @@ impl Config {
         let fallback_enabled = r.bool("SOLANA_FALLBACK_ENABLED", true);
         let fallback_rps = r.range("SOLANA_FALLBACK_RPS", 2, 1, 4);
 
+        let de_enabled = r.bool("DATA_ENGINE_ENABLED", true);
+        let de_auto = r.bool("DATA_ENGINE_AUTO_INGEST_ENABLED", false);
+        let de_targets = r.range("DATA_ENGINE_MAX_ACTIVE_TARGETS", 25, 1, 100);
+        if de_targets > helius_ws_subs {
+            r.issue(
+                "DATA_ENGINE_MAX_ACTIVE_TARGETS",
+                "must not exceed HELIUS_WS_MAX_SUBSCRIPTIONS",
+            );
+        }
+        let de_fetch = r.range("DATA_ENGINE_FETCH_CONCURRENCY", 4, 1, 16);
+        if de_fetch > helius_in_flight {
+            r.issue(
+                "DATA_ENGINE_FETCH_CONCURRENCY",
+                "must not exceed HELIUS_MAX_IN_FLIGHT",
+            );
+        }
+        let de_decode = r.range("DATA_ENGINE_DECODE_CONCURRENCY", 4, 1, 16);
+        let de_queue = r.range("DATA_ENGINE_QUEUE_CAPACITY", 2_048, 16, 100_000);
+        let de_lease = r.range("DATA_ENGINE_JOB_LEASE_SECONDS", 60, 10, 600);
+        let de_attempts = r.range("DATA_ENGINE_JOB_MAX_ATTEMPTS", 5, 1, 20);
+        let de_commitment = r.parse(
+            "DATA_ENGINE_DEFAULT_COMMITMENT",
+            RetrievalCommitment::Confirmed,
+            |v| match v {
+                "confirmed" => Ok(RetrievalCommitment::Confirmed),
+                "finalized" => Ok(RetrievalCommitment::Finalized),
+                _ => Err(
+                    "must be `confirmed` or `finalized` (getTransaction rejects processed)".into(),
+                ),
+            },
+        );
+        let de_final_every = r.range("DATA_ENGINE_FINALITY_RECONCILE_INTERVAL_SECS", 15, 5, 3_600);
+        let de_final_batch = r.range("DATA_ENGINE_FINALITY_BATCH_SIZE", 64, 1, 256);
+        let de_backfill = r.bool("DATA_ENGINE_BACKFILL_ENABLED", true);
+        let de_backfills = r.range("DATA_ENGINE_MAX_CONCURRENT_BACKFILLS", 1, 1, 2);
+        let de_page = r.range("DATA_ENGINE_BACKFILL_PAGE_SIZE", 100, 1, 1_000);
+        let de_pages = r.range("DATA_ENGINE_BACKFILL_MAX_PAGES", 10, 1, 100);
+        let de_sigs = r.range("DATA_ENGINE_BACKFILL_MAX_SIGNATURES", 1_000, 1, 10_000);
+        let de_price = r.bool("DATA_ENGINE_PRICE_ENRICHMENT_ENABLED", false);
+        let de_price_age = r.range("DATA_ENGINE_PRICE_MAX_AGE_SECS", 15, 1, 300);
+        let de_outbox_batch = r.range("DATA_ENGINE_OUTBOX_BATCH_SIZE", 100, 1, 1_000);
+        let de_outbox_poll = r.range("DATA_ENGINE_OUTBOX_POLL_INTERVAL_MS", 250, 50, 10_000);
+        let de_metrics = r.range("DATA_ENGINE_METRICS_REFRESH_SECS", 15, 1, 300);
+        let de_evidence = r.range(
+            "DATA_ENGINE_EVIDENCE_MAX_BYTES",
+            1_048_576,
+            65_536,
+            8_388_608,
+        );
+        if de_evidence > gw_max_body {
+            r.issue(
+                "DATA_ENGINE_EVIDENCE_MAX_BYTES",
+                "must not exceed GATEWAY_MAX_RESPONSE_BYTES",
+            );
+        }
+        let de_evidence_days = r.range("DATA_ENGINE_EVIDENCE_RETENTION_DAYS", 90, 0, 3_650);
+        let de_job_days = r.range("DATA_ENGINE_JOB_RETENTION_DAYS", 14, 1, 365);
+        let de_outbox_days = r.range("DATA_ENGINE_OUTBOX_RETENTION_DAYS", 7, 1, 365);
+
         if !r.issues.is_empty() {
             return Err(ConfigError::Invalid(r.issues));
         }
@@ -509,6 +626,33 @@ impl Config {
                     rps: to_u32(fallback_rps),
                 },
             },
+            data_engine: DataEngineConfig {
+                enabled: de_enabled,
+                auto_ingest_enabled: de_auto,
+                max_active_targets: to_usize(de_targets),
+                fetch_concurrency: to_usize(de_fetch),
+                decode_concurrency: to_usize(de_decode),
+                queue_capacity: de_queue,
+                job_lease: Duration::from_secs(de_lease),
+                job_max_attempts: to_u32(de_attempts),
+                default_commitment: de_commitment,
+                finality_interval: Duration::from_secs(de_final_every),
+                finality_batch_size: to_usize(de_final_batch),
+                backfill_enabled: de_backfill,
+                max_concurrent_backfills: to_usize(de_backfills),
+                backfill_page_size: u16::try_from(de_page).unwrap_or(100),
+                backfill_max_pages: to_u32(de_pages),
+                backfill_max_signatures: to_u32(de_sigs),
+                price_enrichment_enabled: de_price,
+                price_max_age: Duration::from_secs(de_price_age),
+                outbox_batch_size: to_usize(de_outbox_batch),
+                outbox_poll_interval: Duration::from_millis(de_outbox_poll),
+                metrics_refresh: Duration::from_secs(de_metrics),
+                evidence_max_bytes: to_usize(de_evidence),
+                evidence_retention_days: to_u32(de_evidence_days),
+                job_retention_days: to_u32(de_job_days),
+                outbox_retention_days: to_u32(de_outbox_days),
+            },
         })
     }
 
@@ -531,7 +675,8 @@ impl fmt::Display for SafeSummary<'_> {
             "env={} bind={}:{} db={} db_max_connections={} migrations={} log={}/{:?} \
              trading_mode={} live_trading_enabled={} helius_key={} jupiter_key={} \
              dexscreener={} fallback_rpc={} gateway={} streams={} \
-             helius_credits={}/month reserve={}%",
+             helius_credits={}/month reserve={}% data_engine={} auto_ingest={} \
+             commitment={}",
             c.app.env.as_str(),
             c.app.host,
             c.app.port,
@@ -550,6 +695,9 @@ impl fmt::Display for SafeSummary<'_> {
             c.gateway.streams_enabled,
             c.gateway.helius.monthly_credits,
             c.gateway.helius.reserve_percent,
+            c.data_engine.enabled,
+            c.data_engine.auto_ingest_enabled,
+            c.data_engine.default_commitment.as_str(),
         )
     }
 }
@@ -727,6 +875,52 @@ mod tests {
         assert!(c.providers.jupiter_api_key.is_none());
         assert_eq!(c.database.max_connections, 5);
         assert_eq!(c.log.format, LogFormat::Pretty);
+    }
+
+    #[test]
+    fn data_engine_defaults_are_conservative() {
+        let c = cfg(&[]).unwrap();
+        let d = &c.data_engine;
+        assert!(!d.auto_ingest_enabled, "live intake must be opt-in");
+        assert!(
+            !d.price_enrichment_enabled,
+            "price enrichment must be opt-in"
+        );
+        assert_eq!(d.default_commitment, RetrievalCommitment::Confirmed);
+        assert_eq!(d.max_concurrent_backfills, 1);
+        assert_eq!(d.backfill_max_pages, 10);
+        assert_eq!(d.backfill_max_signatures, 1_000);
+        assert!(d.fetch_concurrency <= c.gateway.helius.max_in_flight);
+        assert!(d.max_active_targets <= c.gateway.helius.ws_max_subscriptions);
+        assert!(d.evidence_max_bytes <= c.gateway.max_response_bytes);
+    }
+
+    #[test]
+    fn data_engine_rejects_processed_commitment_and_out_of_range_values() {
+        for (k, v) in [
+            ("DATA_ENGINE_DEFAULT_COMMITMENT", "processed"),
+            ("DATA_ENGINE_FETCH_CONCURRENCY", "0"),
+            ("DATA_ENGINE_MAX_CONCURRENT_BACKFILLS", "3"),
+            ("DATA_ENGINE_BACKFILL_PAGE_SIZE", "1001"),
+            ("DATA_ENGINE_JOB_MAX_ATTEMPTS", "21"),
+            ("DATA_ENGINE_EVIDENCE_MAX_BYTES", "1024"),
+        ] {
+            let err = cfg(&[(k, v)]).unwrap_err().to_string();
+            assert!(err.contains(k), "{k}={v}: {err}");
+        }
+    }
+
+    #[test]
+    fn data_engine_limits_must_fit_gateway_limits() {
+        let err = cfg(&[
+            ("DATA_ENGINE_FETCH_CONCURRENCY", "16"),
+            ("HELIUS_MAX_IN_FLIGHT", "4"),
+        ])
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("DATA_ENGINE_FETCH_CONCURRENCY"), "{err}");
+        let c = cfg(&[("DATA_ENGINE_DEFAULT_COMMITMENT", "finalized")]).unwrap();
+        assert_eq!(c.data_engine.default_commitment.as_str(), "finalized");
     }
 
     #[test]

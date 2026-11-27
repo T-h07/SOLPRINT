@@ -109,7 +109,7 @@ async fn system_status_reports_truthful_state() {
     assert_eq!(body["trading"]["execution_capability"], "NONE");
     assert_eq!(body["database"]["status"], "UNAVAILABLE");
     assert!(body["database"]["migrations_applied"].is_null());
-    assert_eq!(body["database"]["migrations_expected"], 2);
+    assert_eq!(body["database"]["migrations_expected"], 3);
     let providers = body["providers"].as_array().unwrap();
     assert_eq!(providers.len(), 4);
     for p in providers {
@@ -217,6 +217,14 @@ async fn no_endpoint_leaks_synthetic_secrets() {
         "/api/v1/gateway/budgets",
         "/api/v1/gateway/streams",
         "/api/v1/gateway/cache",
+        "/api/v1/data/status",
+        "/api/v1/data/decoders",
+        "/api/v1/data/transactions",
+        "/api/v1/data/swaps",
+        "/api/v1/data/issues",
+        "/api/v1/data/targets",
+        "/api/v1/data/backfills",
+        "/api/v1/data/events",
         "/does-not-exist",
     ] {
         let res = router(offline_state()).oneshot(get(path)).await.unwrap();
@@ -284,7 +292,7 @@ async fn readiness_tracks_real_database_availability() {
 
     let (_, _, body) = call(state.clone(), get("/api/v1/system/status")).await;
     assert_eq!(body["database"]["status"], "AVAILABLE");
-    assert_eq!(body["database"]["migrations_applied"], 2);
+    assert_eq!(body["database"]["migrations_applied"], 3);
 
     // Outage: readiness must flip to 503 while liveness stays 200.
     tdb.drop_database().await;
@@ -345,4 +353,90 @@ async fn gateway_usage_rejects_malformed_queries() {
     let (status, _, body) = call(offline_state(), get("/api/v1/gateway/usage?hours=abc")).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"]["code"], "BAD_REQUEST");
+}
+
+#[tokio::test]
+async fn data_status_degrades_truthfully_without_database() {
+    let (status, _, body) = call(offline_state(), get("/api/v1/data/status")).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["running"], false, "no engine attached");
+    assert_eq!(body["execution_capability"], "NONE");
+    assert_eq!(body["counts_available"], false);
+    assert!(body["queue"].is_null(), "no fabricated totals");
+    assert!(body["transactions"].is_null());
+    assert_eq!(body["settings"]["price_enrichment_enabled"], false);
+    assert_eq!(body["settings"]["auto_ingest_enabled"], false);
+}
+
+#[tokio::test]
+async fn data_reads_return_503_envelope_when_database_is_down() {
+    for path in [
+        "/api/v1/data/transactions",
+        "/api/v1/data/swaps",
+        "/api/v1/data/issues",
+        "/api/v1/data/targets",
+        "/api/v1/data/backfills",
+        "/api/v1/data/events",
+    ] {
+        let (status, _, body) = call(offline_state(), get(path)).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{path}");
+        assert_eq!(body["error"]["code"], "SERVICE_UNAVAILABLE", "{path}");
+    }
+}
+
+#[tokio::test]
+async fn data_decoders_list_the_registry_without_database() {
+    let (status, _, body) = call(offline_state(), get("/api/v1/data/decoders")).await;
+    assert_eq!(status, StatusCode::OK);
+    let ids: Vec<&str> = body["decoders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["protocol"].as_str().unwrap())
+        .collect();
+    for p in [
+        "JUPITER",
+        "PUMP_FUN",
+        "PUMPSWAP",
+        "RAYDIUM_AMM_V4",
+        "RAYDIUM_CPMM",
+        "RAYDIUM_CLMM",
+        "ORCA_WHIRLPOOL",
+    ] {
+        assert!(ids.contains(&p), "{p} missing from {ids:?}");
+    }
+    assert_eq!(body["network"], "solana-mainnet");
+}
+
+#[tokio::test]
+async fn data_queries_are_validated_before_touching_storage() {
+    for path in [
+        "/api/v1/data/swaps?wallet=not-base58!",
+        "/api/v1/data/swaps?protocol=lower_case",
+        "/api/v1/data/transactions?cursor=abc",
+        "/api/v1/data/transactions/short",
+        "/api/v1/data/issues?signature=xyz",
+        "/api/v1/data/swaps?limit=abc",
+    ] {
+        let (status, _, body) = call(offline_state(), get(path)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{path}: {body}");
+    }
+}
+
+#[tokio::test]
+async fn data_endpoints_are_read_only() {
+    for path in [
+        "/api/v1/data/status",
+        "/api/v1/data/swaps",
+        "/api/v1/data/targets",
+        "/api/v1/data/backfills",
+    ] {
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri(path)
+            .body(Body::empty())
+            .unwrap();
+        let (status, _, _) = call(offline_state(), req).await;
+        assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED, "{path}");
+    }
 }

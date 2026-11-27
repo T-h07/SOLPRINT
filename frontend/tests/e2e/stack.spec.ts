@@ -56,3 +56,28 @@ test('production build does not expose the design-system showcase', async ({ pag
   await page.goto('/design-system');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Not found');
 });
+
+test('data engine workspace reads the real, persisted state', async ({ page, request }) => {
+  const status = await request.get('/api/v1/data/status');
+  expect(status.status()).toBe(200);
+  const body = (await status.json()) as {
+    execution_capability: string;
+    counts_available: boolean;
+    decoder_version: string;
+  };
+  expect(body.execution_capability).toBe('NONE');
+  expect(body.counts_available).toBe(true);
+  expect(body.decoder_version).toMatch(/^de-/);
+
+  const decoders = await request.get('/api/v1/data/decoders');
+  expect(decoders.status()).toBe(200);
+  expect(((await decoders.json()) as { decoders: unknown[] }).decoders.length).toBeGreaterThan(0);
+
+  await page.goto('/data');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Data engine');
+  // A fresh stack has ingested nothing: the workspace says so instead of
+  // showing invented rows.
+  await expect(
+    page.getByText('No transactions decoded yet.').filter({ visible: true }),
+  ).toBeVisible();
+});

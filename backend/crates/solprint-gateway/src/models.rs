@@ -51,6 +51,20 @@ pub struct SignatureInfo {
     pub confirmation_status: Option<CommitmentLevel>,
 }
 
+/// One entry of `getSignatureStatuses`. The RPC answers `null` for a
+/// signature it does not know; that is represented as `None` by the caller
+/// and is **not** evidence that the transaction failed or was dropped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureStatus {
+    pub slot: u64,
+    /// `None` once the block is rooted (finalized).
+    pub confirmations: Option<u64>,
+    pub failed: bool,
+    /// Compact JSON of the on-chain error, when the transaction failed.
+    pub err_json: Option<String>,
+    pub confirmation_status: Option<CommitmentLevel>,
+}
+
 /// Bounded incremental pagination for `getSignaturesForAddress`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignatureQuery {

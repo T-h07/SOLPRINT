@@ -5,6 +5,15 @@
  * truncated body must never render as "healthy").
  */
 import type {
+  DataBackfillsResponse,
+  DataDecodersResponse,
+  DataEngineStatus,
+  DataEventsResponse,
+  DataIssuesResponse,
+  DataSwapsResponse,
+  DataTargetsResponse,
+  DataTransactionDetail,
+  DataTransactionsResponse,
   GatewayBudgetsResponse,
   GatewayCacheResponse,
   GatewayMetricsResponse,
@@ -114,5 +123,114 @@ export function isGatewayUsage(v: unknown): v is GatewayUsageResponse {
     Array.isArray(v.process) &&
     Array.isArray(v.history) &&
     typeof v.history_available === 'boolean'
+  );
+}
+
+// DATA ENGINE (Phase 02). Amounts are strings; a number where a string is
+// expected means the contract changed and the value must not be rendered.
+
+const isStrOrNull = (v: unknown): v is string | null => v === null || typeof v === 'string';
+
+export function isDataStatus(v: unknown): v is DataEngineStatus {
+  return (
+    isObj(v) &&
+    typeof v.running === 'boolean' &&
+    v.execution_capability === 'NONE' &&
+    isStr(v.decoder_version) &&
+    isStr(v.generated_at) &&
+    typeof v.counts_available === 'boolean' &&
+    Array.isArray(v.open_issues_by_severity) &&
+    (v.queue === null || (isObj(v.queue) && isNum(v.queue.depth) && isNum(v.queue.capacity))) &&
+    (v.transactions === null || (isObj(v.transactions) && isNum(v.transactions.total)))
+  );
+}
+
+function isSwap(v: unknown): boolean {
+  return (
+    isObj(v) &&
+    isStr(v.swap_id) &&
+    isStr(v.signature) &&
+    isObj(v.input) &&
+    isObj(v.output) &&
+    isStrOrNull(v.input.amount) &&
+    isStrOrNull(v.output.amount) &&
+    isStrOrNull(v.exchange_ratio) &&
+    isStr(v.attribution) &&
+    isStr(v.classification_status) &&
+    Array.isArray(v.legs) &&
+    Array.isArray(v.fees) &&
+    isObj(v.valuation)
+  );
+}
+
+function isTxSummary(v: unknown): boolean {
+  return (
+    isObj(v) &&
+    isStr(v.signature) &&
+    isNum(v.slot) &&
+    isStr(v.fee_lamports) &&
+    isStr(v.finality) &&
+    isStr(v.decode_status) &&
+    Array.isArray(v.protocols)
+  );
+}
+
+export function isDataTransactions(v: unknown): v is DataTransactionsResponse {
+  return (
+    isObj(v) &&
+    isStr(v.generated_at) &&
+    Array.isArray(v.items) &&
+    v.items.every(isTxSummary) &&
+    isStrOrNull(v.next_cursor)
+  );
+}
+
+export function isDataTransactionDetail(v: unknown): v is DataTransactionDetail {
+  return (
+    isObj(v) &&
+    isStr(v.generated_at) &&
+    isTxSummary(v.summary) &&
+    Array.isArray(v.evidence) &&
+    Array.isArray(v.balances) &&
+    Array.isArray(v.activities) &&
+    Array.isArray(v.swaps) &&
+    v.swaps.every(isSwap) &&
+    Array.isArray(v.issues)
+  );
+}
+
+export function isDataSwaps(v: unknown): v is DataSwapsResponse {
+  return (
+    isObj(v) &&
+    isStr(v.generated_at) &&
+    Array.isArray(v.items) &&
+    v.items.every(isSwap) &&
+    isStrOrNull(v.next_cursor)
+  );
+}
+
+export function isDataIssues(v: unknown): v is DataIssuesResponse {
+  return isObj(v) && isStr(v.generated_at) && Array.isArray(v.items);
+}
+
+export function isDataTargets(v: unknown): v is DataTargetsResponse {
+  return isObj(v) && isStr(v.generated_at) && isNum(v.max_active_targets) && Array.isArray(v.items);
+}
+
+export function isDataBackfills(v: unknown): v is DataBackfillsResponse {
+  return isObj(v) && isStr(v.generated_at) && Array.isArray(v.items);
+}
+
+export function isDataEvents(v: unknown): v is DataEventsResponse {
+  return isObj(v) && isStr(v.generated_at) && Array.isArray(v.items);
+}
+
+export function isDataDecoders(v: unknown): v is DataDecodersResponse {
+  return (
+    isObj(v) &&
+    isStr(v.decoder_version) &&
+    isStr(v.network) &&
+    Array.isArray(v.decoders) &&
+    v.decoders.every((d) => isObj(d) && isStr(d.id) && isStr(d.protocol) && isStr(d.program_id))
   );
 }

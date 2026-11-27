@@ -77,6 +77,41 @@ what the plan includes: GATEWAY never enables paid usage.
 In Compose these keys are passed through with an empty default, which means "use the
 backend default".
 
+## DATA ENGINE (Phase 02)
+
+The engine is read-only: it fetches, decodes and stores transactions and never signs or
+submits anything. Every provider request goes through GATEWAY's budget and rate limits.
+Live intake and automatic ingestion are off by default. See
+[DATA_ENGINE.md](../architecture/DATA_ENGINE.md).
+
+| Key | Default | Rules |
+|---|---|---|
+| `DATA_ENGINE_ENABLED` | `true` | `false` = no workers, reconciler, backfills or intake; the API still reads stored data |
+| `DATA_ENGINE_AUTO_INGEST_ENABLED` | `false` | live intake from GATEWAY `logsSubscribe` for enabled wallet targets (also needs `GATEWAY_STREAMS_ENABLED`) |
+| `DATA_ENGINE_MAX_ACTIVE_TARGETS` | `25` | 1–100; must not exceed `HELIUS_WS_MAX_SUBSCRIPTIONS` |
+| `DATA_ENGINE_FETCH_CONCURRENCY` | `4` | 1–16; must not exceed `HELIUS_MAX_IN_FLIGHT` |
+| `DATA_ENGINE_DECODE_CONCURRENCY` | `4` | 1–16; job workers |
+| `DATA_ENGINE_QUEUE_CAPACITY` | `2048` | 16–100 000 non-terminal jobs; above it intake is refused and backfills pause |
+| `DATA_ENGINE_JOB_LEASE_SECONDS` | `60` | 10–600 |
+| `DATA_ENGINE_JOB_MAX_ATTEMPTS` | `5` | 1–20 |
+| `DATA_ENGINE_DEFAULT_COMMITMENT` | `confirmed` | `confirmed` \| `finalized` (`getTransaction` rejects processed) |
+| `DATA_ENGINE_FINALITY_RECONCILE_INTERVAL_SECS` | `15` | 5–3 600 |
+| `DATA_ENGINE_FINALITY_BATCH_SIZE` | `64` | 1–256 signatures per `getSignatureStatuses` |
+| `DATA_ENGINE_BACKFILL_ENABLED` | `true` | backfills run only when the owner created one (`backfill create --yes`) |
+| `DATA_ENGINE_MAX_CONCURRENT_BACKFILLS` | `1` | 1–2 |
+| `DATA_ENGINE_BACKFILL_PAGE_SIZE` | `100` | 1–1 000 |
+| `DATA_ENGINE_BACKFILL_MAX_PAGES` | `10` | 1–100 |
+| `DATA_ENGINE_BACKFILL_MAX_SIGNATURES` | `1000` | 1–10 000 |
+| `DATA_ENGINE_PRICE_ENRICHMENT_ENABLED` | `false` | USD valuation is **not implemented** in Phase 02; swaps report `NOT_ENRICHED`, or `PRICE_UNAVAILABLE` when this is `true` |
+| `DATA_ENGINE_PRICE_MAX_AGE_SECS` | `15` | 1–300; reserved for point-in-time valuation |
+| `DATA_ENGINE_OUTBOX_BATCH_SIZE` | `100` | 1–1 000 |
+| `DATA_ENGINE_OUTBOX_POLL_INTERVAL_MS` | `250` | 50–10 000 |
+| `DATA_ENGINE_METRICS_REFRESH_SECS` | `15` | 1–300 |
+| `DATA_ENGINE_EVIDENCE_MAX_BYTES` | `1048576` | 64 KiB–8 MiB; must not exceed `GATEWAY_MAX_RESPONSE_BYTES` |
+| `DATA_ENGINE_EVIDENCE_RETENTION_DAYS` | `90` | 0–3 650; prunes raw JSON of finalized transactions (hash kept); `0` never prunes |
+| `DATA_ENGINE_JOB_RETENTION_DAYS` | `14` | 1–365; `COMPLETED` and `CANCELLED` jobs |
+| `DATA_ENGINE_OUTBOX_RETENTION_DAYS` | `7` | 1–365; events every consumer has delivered |
+
 ## Compose / scripts
 
 | Key | Default | Purpose |

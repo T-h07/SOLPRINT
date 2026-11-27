@@ -55,6 +55,18 @@ Check 'monitoring reads create no provider requests' {
     $after = ((Get-Http '/api/v1/gateway/providers').Content | ConvertFrom-Json).providers | ForEach-Object { $_.traffic.requests }
     ($before -join ',') -eq ($after -join ',')
 }
+Check 'data engine status: read-only, totals from PostgreSQL' {
+    $d = (Get-Http '/api/v1/data/status').Content | ConvertFrom-Json
+    $d.execution_capability -eq 'NONE' -and $d.counts_available -eq $true
+}
+Check 'data engine endpoints answer from local state without provider traffic' {
+    $before = ((Get-Http '/api/v1/gateway/providers').Content | ConvertFrom-Json).providers | ForEach-Object { $_.traffic.requests }
+    foreach ($p in 'status', 'decoders', 'transactions', 'swaps', 'issues', 'targets', 'backfills', 'events') {
+        if ((Get-Http "/api/v1/data/$p").StatusCode -ne 200) { throw "data/$p" }
+    }
+    $after = ((Get-Http '/api/v1/gateway/providers').Content | ConvertFrom-Json).providers | ForEach-Object { $_.traffic.requests }
+    ($before -join ',') -eq ($after -join ',')
+}
 Check 'version endpoint' { ((Get-Http '/api/v1/system/version').Content | ConvertFrom-Json).name -eq 'solprint' }
 Check 'unknown API route -> structured 404' {
     $r = Get-Http '/api/v1/does-not-exist'

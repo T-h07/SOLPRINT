@@ -46,6 +46,25 @@ See [docs/architecture/GATEWAY.md](docs/architecture/GATEWAY.md).
 - Future modules use GATEWAY's typed traits (`traits.rs`), not provider DTOs.
 - Monitoring endpoints read local state only and must never trigger provider traffic.
 
+## Blockchain data (DATA ENGINE)
+
+See [docs/architecture/DATA_ENGINE.md](docs/architecture/DATA_ENGINE.md).
+
+- Every chain request goes through GATEWAY. The DATA ENGINE takes a `ChainSource`, never
+  an HTTP client.
+- Future wallet intelligence (RADAR and later) consumes normalized DATA ENGINE records
+  and outbox events, never provider responses or decoder internals.
+- Amounts stay exact raw integers. Decimals come only from the transaction's evidence.
+- Attribution requires evidence: the protocol's authority account, and only if it
+  signed. The fee payer is never a substitute.
+- An unverified swap is not a trade. Aggregator route legs are not separate trades.
+- Prices are point-in-time. A current price is never applied to a past swap. USD
+  valuation is not implemented yet.
+- Respect finality and corrections: finality never regresses, `null` status is not
+  orphaning, and revisions and retractions are honored.
+- Never assume completeness. Gaps, partial backfills and unknown continuity stay visible.
+- Event consumers are idempotent: deduplicate by event id and aggregate revision.
+
 ## Financial precision
 
 - No floating point for amounts or prices. Lamports/raw token amounts are `u64` with

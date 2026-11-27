@@ -15,6 +15,7 @@ pub const GET_TOKEN_ACCOUNTS_BY_OWNER: &str = "getTokenAccountsByOwner";
 pub const GET_TOKEN_SUPPLY: &str = "getTokenSupply";
 pub const GET_TOKEN_LARGEST_ACCOUNTS: &str = "getTokenLargestAccounts";
 pub const GET_BLOCK: &str = "getBlock";
+pub const GET_SIGNATURE_STATUSES: &str = "getSignatureStatuses";
 
 pub const JUP_PRICE: &str = "jupiter.price";
 pub const JUP_TOKENS_SEARCH: &str = "jupiter.tokens.search";
@@ -47,6 +48,7 @@ pub const ALL: &[&str] = &[
     GET_TOKEN_SUPPLY,
     GET_TOKEN_LARGEST_ACCOUNTS,
     GET_BLOCK,
+    GET_SIGNATURE_STATUSES,
     JUP_PRICE,
     JUP_TOKENS_SEARCH,
     JUP_QUOTE,
@@ -82,7 +84,8 @@ pub fn helius_credits(method: &str) -> Option<u64> {
         | GET_TOKEN_ACCOUNTS_BY_OWNER
         | GET_TOKEN_SUPPLY
         | GET_TOKEN_LARGEST_ACCOUNTS
-        | GET_BLOCK => Some(1),
+        | GET_BLOCK
+        | GET_SIGNATURE_STATUSES => Some(1),
         _ => None,
     }
 }
@@ -101,7 +104,7 @@ mod tests {
 
     #[test]
     fn every_rpc_operation_has_a_cost_and_nothing_else_does() {
-        for m in &ALL[..14] {
+        for m in &ALL[..15] {
             assert_eq!(helius_credits(m), Some(1), "{m}");
         }
         for m in PROHIBITED_RPC_METHODS {

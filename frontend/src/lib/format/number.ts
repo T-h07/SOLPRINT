@@ -113,3 +113,38 @@ export function formatShare(part: number, whole: number, places = 1): string {
   const scaled = (BigInt(part) * 100n * scale) / BigInt(whole);
   return `${formatBaseUnits(scaled.toString(), places, places)}%`;
 }
+
+/**
+ * Raw token amount with its mint's decimals, at most `maxPlaces` fractional
+ * digits (rounded down, never up). Unknown decimals show the raw integer
+ * with an explicit "raw" suffix instead of guessing a scale.
+ */
+export function formatTokenAmount(
+  raw: string | null,
+  decimals: number | null,
+  maxPlaces = 4,
+): string {
+  if (raw === null) return '—';
+  if (decimals === null) return /^(0|[1-9]\d*)$/.test(raw) ? `${group(raw)} raw` : '—';
+  return formatBaseUnits(raw, decimals, Math.min(decimals, maxPlaces));
+}
+
+/** Signed base-unit delta ("-500000000" → "−0.5000", "+…" for gains). */
+export function formatSignedBaseUnits(
+  raw: string | null,
+  decimals: number | null,
+  maxPlaces = 4,
+): string {
+  if (raw === null) return '—';
+  const m = /^(-?)(0|[1-9]\d*)$/.exec(raw);
+  if (!m) return '—';
+  const [, sign = '', abs = '0'] = m;
+  const v = formatTokenAmount(abs, decimals, maxPlaces);
+  if (abs === '0') return v;
+  return sign ? `${MINUS}${v}` : `+${v}`;
+}
+
+/** "So11…1112": first and last four characters of a base58 identifier. */
+export function shortId(id: string, keep = 4): string {
+  return id.length <= keep * 2 + 1 ? id : `${id.slice(0, keep)}…${id.slice(-keep)}`;
+}

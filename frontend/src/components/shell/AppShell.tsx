@@ -1,4 +1,4 @@
-import { Activity, LayoutGrid, Network, Palette } from 'lucide-react';
+import { Activity, Database, LayoutGrid, Network, Palette } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { NavLink, Outlet } from 'react-router';
 
@@ -24,6 +24,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { to: '/', label: 'Overview', icon: <LayoutGrid className="size-4" /> },
   { to: '/gateway', label: 'Gateway', icon: <Network className="size-4" /> },
+  { to: '/data', label: 'Data engine', icon: <Database className="size-4" /> },
   { to: '/system', label: 'System', icon: <Activity className="size-4" /> },
   ...(designSystemEnabled
     ? [{ to: '/design-system', label: 'Design system', icon: <Palette className="size-4" /> }]

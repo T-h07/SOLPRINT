@@ -15,11 +15,22 @@
 //! | GET    | `/api/v1/gateway/budgets`   | Helius credit budget                   |
 //! | GET    | `/api/v1/gateway/streams`   | WebSocket stream state, checkpoints    |
 //! | GET    | `/api/v1/gateway/cache`     | response cache statistics              |
+//! | GET    | `/api/v1/data/status`       | DATA ENGINE queue, totals, counters    |
+//! | GET    | `/api/v1/data/decoders`     | registered protocol decoders           |
+//! | GET    | `/api/v1/data/transactions` | decoded transactions (keyset paging)   |
+//! | GET    | `/api/v1/data/transactions/{signature}` | evidence, balances, activities, swaps |
+//! | GET    | `/api/v1/data/swaps`        | normalized swaps (filters, paging)     |
+//! | GET    | `/api/v1/data/issues`       | data-quality issues                    |
+//! | GET    | `/api/v1/data/targets`      | ingestion targets and coverage         |
+//! | GET    | `/api/v1/data/backfills`    | bounded backfills                      |
+//! | GET    | `/api/v1/data/events`       | recent domain events (outbox)          |
 //!
 //! None of these endpoints contacts an external provider: GATEWAY endpoints
-//! read only in-memory state and stored aggregates.
+//! read only in-memory state and stored aggregates; DATA ENGINE endpoints
+//! read PostgreSQL and in-process counters and never enqueue work.
 
 pub mod contracts;
+mod data_routes;
 mod gateway_routes;
 mod middleware;
 mod state;
@@ -61,6 +72,18 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/gateway/budgets", get(gateway_routes::budgets))
         .route("/api/v1/gateway/streams", get(gateway_routes::streams))
         .route("/api/v1/gateway/cache", get(gateway_routes::cache))
+        .route("/api/v1/data/status", get(data_routes::status))
+        .route("/api/v1/data/decoders", get(data_routes::decoders))
+        .route("/api/v1/data/transactions", get(data_routes::transactions))
+        .route(
+            "/api/v1/data/transactions/{signature}",
+            get(data_routes::transaction),
+        )
+        .route("/api/v1/data/swaps", get(data_routes::swaps))
+        .route("/api/v1/data/issues", get(data_routes::issues))
+        .route("/api/v1/data/targets", get(data_routes::targets))
+        .route("/api/v1/data/backfills", get(data_routes::backfills))
+        .route("/api/v1/data/events", get(data_routes::events))
         .fallback(middleware::not_found)
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(limits.body_limit_bytes))

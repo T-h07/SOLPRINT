@@ -68,6 +68,33 @@ Every value GATEWAY returns is a `GatewayResponse<T>` carrying `provider`, `prov
 * Monitoring counters that are `u64` are sent as JSON numbers (`#[ts(type = "number")]`):
   they are operational counts far below 2^53, unlike amounts, which stay strings.
 
+## Chain data (DATA ENGINE)
+
+Details: [DATA_ENGINE.md](DATA_ENGINE.md),
+[TRANSACTION_RECONSTRUCTION.md](TRANSACTION_RECONSTRUCTION.md),
+[SWAP_NORMALIZATION.md](SWAP_NORMALIZATION.md).
+
+* **Raw amounts stay exact.** Swap, leg and fee amounts are raw `u64` (`NUMERIC(20,0)`
+  in PostgreSQL, strings on the wire). UI amounts are derived only when decimals are
+  known from the transaction's own evidence; otherwise they are null, never guessed.
+* **Balance deltas are signed `i128`** (`post − pre` of two `u64` cannot overflow) and are
+  stored as `NUMERIC(21,0)`. They are sent as signed decimal strings (`"-5000"`).
+* **Exchange ratios** are exact `Decimal` division rounded **toward zero** to 18 decimal
+  places (`NUMERIC(48,18)`), and null when either side is zero or missing.
+* **Stable ids.** Records are keyed by evidence, not by insertion order:
+  `swap:<signature>:<instruction_ref>`. An instruction reference is `<outer>` for a
+  top-level instruction and `<outer>.<inner>` for an inner one (zero-based
+  indices). Reprocessing rewrites the same ids under a new revision and never creates
+  duplicates.
+* **Revisions and evidence hashes.** Each stored transaction has a `current_revision` and
+  the SHA-256 of the canonical evidence it was decoded from. Every outbox event carries
+  `aggregate_revision`, so consumers can ignore stale or duplicate deliveries.
+* **Finality is separate from execution status** (`SUCCESS` / `FAILED`) and never
+  regresses ([FINALITY_AND_RECONCILIATION.md](FINALITY_AND_RECONCILIATION.md)).
+* **Block time is the source time.** `block_time` is the chain's own (second-precision)
+  time and may be null. `observed_at` is when SOLPRINT received the evidence. They are
+  never substituted for each other.
+
 ## Honesty rules
 
 * A value that was not measured is `null` and rendered as `—`, never `0`.
@@ -78,6 +105,10 @@ Every value GATEWAY returns is a `GatewayResponse<T>` carrying `provider`, `prov
   `STALE_CACHE`; it is never presented as newly observed.
 * Local credit accounting is labelled as SOLPRINT's own estimate; the provider's
   dashboard remains the authority for billing.
+* An unverified swap is not a trade, and an aggregator's route leg is not a separate
+  trade. Only `VERIFIED` swaps with a verified wallet count as wallet trades.
+* USD values are not computed in Phase 02. Swaps report `NOT_ENRICHED` (or
+  `PRICE_UNAVAILABLE`), never an estimated or current price applied to past swaps.
 * Fixtures and demo data are visibly labelled `FIXTURE` / `DEMO DATA` and never appear in
   production bundles.
 

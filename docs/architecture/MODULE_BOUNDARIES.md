@@ -9,8 +9,9 @@
 | `solprint-observability` | config |
 | `solprint-storage` | core, config |
 | `solprint-gateway` | core, config, storage |
-| `solprint-api` | core, config, observability, storage, gateway |
-| `solprint-app` | api, config, core, gateway, observability, storage |
+| `solprint-data-engine` | core, config, storage, gateway |
+| `solprint-api` | core, config, observability, storage, gateway, data-engine |
+| `solprint-app` | api, config, core, gateway, data-engine, observability, storage |
 
 Rules:
 
@@ -30,7 +31,13 @@ Rules:
    other crates see only its normalized models and the traits in `traits.rs`. GATEWAY
    persists through the `GatewayStore` trait, implemented for `solprint_storage::Database`
    (and an in-memory store for tests); the SQL stays in `solprint-storage`.
-7. **Secrets stay in `solprint-config`'s `Secret<T>`** until the exact point of use. No
+7. **`solprint-data-engine` reaches providers only through GATEWAY.** It takes a
+   `ChainSource` (implemented over `solprint_gateway::Gateway`; an in-memory source in
+   tests), never an HTTP client, and it decodes only the normalized transaction JSON that
+   GATEWAY returns. It persists only through `solprint_storage::Database`'s `de_*`
+   functions. The API reads Data Engine state from storage; it never triggers ingestion
+   or provider traffic.
+8. **Secrets stay in `solprint-config`'s `Secret<T>`** until the exact point of use. No
    crate logs a `Secret` (its `Debug` is redacted and it has no `Display`).
 
 ## Future modules
@@ -38,7 +45,10 @@ Rules:
 Each roadmap module becomes its own crate under `backend/crates/` when its phase starts,
 depending on `core` (and `storage` if it persists). A module never calls another module's
 internals; cross-module communication will go through explicit interfaces defined when
-the first two modules need to talk (expected: DATA ENGINE → RADAR). Execution-capable code
+the first two modules need to talk. The DATA ENGINE already publishes versioned events
+through its transactional outbox (`de_outbox`, see
+[DATA_ENGINE.md](DATA_ENGINE.md)); future consumers (RADAR, wallet intelligence) read
+those events and the normalized records, never decoder internals or provider DTOs. Execution-capable code
 (SNIPER) is additionally gated by the `bans` list in `backend/deny.toml`: signing and
 wallet crates cannot enter the graph without an explicit, reviewed change to that list.
 

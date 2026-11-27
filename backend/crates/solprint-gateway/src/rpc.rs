@@ -24,7 +24,8 @@ use crate::gateway::Gateway;
 use crate::jsonrpc::{self, RpcEndpoint};
 use crate::models::{
     AccountData, BlockSummary, LargestTokenAccount, NodeHealth, NodeVersion, SignatureInfo,
-    SignaturePage, SignatureQuery, TokenAccount, TokenAccountFilter, TransactionRecord,
+    SignaturePage, SignatureQuery, SignatureStatus, TokenAccount, TokenAccountFilter,
+    TransactionRecord,
 };
 use crate::numbers::u64_from_value;
 use crate::operations as op;
@@ -32,6 +33,8 @@ use crate::operations as op;
 const MIN_FALLBACK_BUDGET: Duration = Duration::from_millis(500);
 /// getMultipleAccounts: documented maximum keys per call.
 pub const MULTIPLE_ACCOUNTS_MAX: usize = 100;
+/// getSignatureStatuses: documented maximum signatures per call.
+pub const SIGNATURE_STATUSES_MAX: usize = 256;
 /// JSON-RPC batch size used for getTransaction (Helius documents 100; a
 /// smaller batch bounds response size).
 pub const TRANSACTION_BATCH_MAX: usize = 20;
@@ -512,6 +515,71 @@ impl Gateway {
         Ok(resp)
     }
 
+    /// Statuses for up to [`SIGNATURE_STATUSES_MAX`] signatures per call
+    /// (more are chunked; each call costs one credit). Items keep request
+    /// order; `None` means the node returned `null` for that signature, which
+    /// can mean "not yet seen", "outside the status cache" or "unknown" and
+    /// never proves the transaction was dropped. Not cached.
+    pub async fn get_signature_statuses(
+        &self,
+        ctx: &RequestContext,
+        signatures: &[TransactionSignature],
+        search_transaction_history: bool,
+    ) -> Result<GatewayResponse<Vec<Option<SignatureStatus>>>, GatewayError> {
+        if signatures.is_empty() || signatures.len() > 4 * SIGNATURE_STATUSES_MAX {
+            return Err(GatewayError::InvalidRequest("1..=1024 signatures per call"));
+        }
+        let mut out = Vec::with_capacity(signatures.len());
+        let mut last = None;
+        let mut credits = 0;
+        for chunk in signatures.chunks(SIGNATURE_STATUSES_MAX) {
+            let list: Vec<&str> = chunk.iter().map(TransactionSignature::as_str).collect();
+            // Agave before v4.4 rejects a config object without this field,
+            // so it is always sent.
+            let params = json!([list, {"searchTransactionHistory": search_transaction_history}]);
+            let r = self
+                .rpc(
+                    ctx,
+                    op::GET_SIGNATURE_STATUSES,
+                    params,
+                    CacheTtl::NONE,
+                    |p, v| {
+                        let (slot, value) = jsonrpc::split_context(v);
+                        let arr = value.as_array().ok_or_else(|| {
+                            decode(p, "getSignatureStatuses value is not an array")
+                        })?;
+                        arr.iter()
+                            .map(|s| {
+                                if s.is_null() {
+                                    Ok(None)
+                                } else {
+                                    parse_signature_status(p, s).map(Some)
+                                }
+                            })
+                            .collect::<Result<Vec<_>, _>>()
+                            .map(|v| Fetched::found(v).at_slot(slot))
+                    },
+                )
+                .await?;
+            credits += r.credits_charged;
+            let items = r.value.clone().unwrap_or_default();
+            if items.len() != chunk.len() {
+                return Err(decode(
+                    ProviderId::Helius,
+                    "getSignatureStatuses returned a different number of items",
+                ));
+            }
+            out.extend(items);
+            last = Some(r);
+        }
+        let Some(last) = last else {
+            return Err(GatewayError::InvalidRequest("no signatures"));
+        };
+        let mut resp = last.map(|_| out);
+        resp.credits_charged = credits;
+        Ok(resp)
+    }
+
     /// `None` when the transaction is unknown or not yet at the requested
     /// commitment. Requires `confirmed` or `finalized`.
     pub async fn get_transaction(
@@ -891,6 +959,30 @@ pub(crate) fn parse_signature_info(
             .get("memo")
             .and_then(Value::as_str)
             .map(|m| m.chars().take(256).collect()),
+        confirmation_status,
+    })
+}
+
+pub(crate) fn parse_signature_status(
+    p: ProviderId,
+    v: &Value,
+) -> Result<SignatureStatus, GatewayError> {
+    let slot = v
+        .get("slot")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| decode(p, "signature status slot missing"))?;
+    let err = v.get("err").filter(|e| !e.is_null());
+    let confirmation_status = match v.get("confirmationStatus").and_then(Value::as_str) {
+        Some("processed") => Some(CommitmentLevel::Processed),
+        Some("confirmed") => Some(CommitmentLevel::Confirmed),
+        Some("finalized") => Some(CommitmentLevel::Finalized),
+        _ => None,
+    };
+    Ok(SignatureStatus {
+        slot,
+        confirmations: v.get("confirmations").and_then(Value::as_u64),
+        failed: err.is_some(),
+        err_json: err.map(|e| e.to_string().chars().take(512).collect()),
         confirmation_status,
     })
 }

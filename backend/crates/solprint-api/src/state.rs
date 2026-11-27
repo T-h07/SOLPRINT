@@ -1,10 +1,12 @@
 //! Shared application state handed to request handlers.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use solprint_config::Config;
+use solprint_config::{Config, DataEngineConfig};
 use solprint_core::UtcTimestamp;
+use solprint_data_engine::engine::Engine;
+use solprint_data_engine::source::GatewaySource;
 use solprint_gateway::Gateway;
 use solprint_storage::Database;
 use tokio::time::Instant;
@@ -56,6 +58,8 @@ struct Inner {
     providers: Vec<ProviderStatus>,
     database: Database,
     gateway: Gateway,
+    data_engine_config: DataEngineConfig,
+    data_engine: OnceLock<Arc<Engine<GatewaySource>>>,
     started_at: UtcTimestamp,
     started_instant: Instant,
     http: HttpLimits,
@@ -125,6 +129,8 @@ impl AppState {
             providers,
             database,
             gateway,
+            data_engine_config: config.data_engine.clone(),
+            data_engine: OnceLock::new(),
             started_at: UtcTimestamp::now(),
             started_instant: Instant::now(),
             http: HttpLimits {
@@ -157,6 +163,22 @@ impl AppState {
     #[must_use]
     pub fn gateway(&self) -> &Gateway {
         &self.0.gateway
+    }
+
+    /// Attach the running DATA ENGINE (once). Without it, `/api/v1/data/*`
+    /// still serves stored data and reports `running: false`.
+    pub fn attach_data_engine(&self, engine: Arc<Engine<GatewaySource>>) {
+        let _ = self.0.data_engine.set(engine);
+    }
+
+    #[must_use]
+    pub fn data_engine(&self) -> Option<&Engine<GatewaySource>> {
+        self.0.data_engine.get().map(AsRef::as_ref)
+    }
+
+    #[must_use]
+    pub fn data_engine_config(&self) -> &DataEngineConfig {
+        &self.0.data_engine_config
     }
 
     /// Static provider facts merged with GATEWAY's measured health.

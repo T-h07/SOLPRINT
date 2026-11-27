@@ -8,24 +8,31 @@ and automated trading strategies.
 
 ## Development status
 
-**Phase 01 — GATEWAY** (on `feature/01-gateway`, awaiting owner review). Phase 00 (the
-engineering foundation: Rust workspace, PostgreSQL, health/status API, logging, Docker
-Compose, the TERMINAL shell and design system, tests) is complete. Phase 01 adds
-GATEWAY, the single read-only access layer to Helius (RPC and WebSocket), Jupiter
-(prices, tokens, quotes only), DEX Screener and the public Solana RPC as a fallback,
-with credit budgets, rate limits, caching, circuit breakers, persisted usage telemetry
-and a Gateway monitoring page.
+**Phase 02 — DATA ENGINE** (on `feature/02-data-engine`, awaiting owner review).
+Phase 00 (foundation) and Phase 01 (GATEWAY, the single read-only access layer to
+Helius, Jupiter, DEX Screener and the public Solana RPC, with budgets, rate limits and
+caching) are complete and merged into `develop`. Phase 02 adds the DATA ENGINE. It
+fetches transactions through GATEWAY, stores the raw evidence, reconstructs them, and
+decodes swaps for Jupiter, Pump.fun, PumpSwap, Raydium (AMM v4, CPMM, CLMM) and Orca
+Whirlpool. Each swap carries exact amounts, evidence-based wallet attribution, finality
+tracking and data-quality issues. The engine also runs bounded history backfills and a
+transactional event outbox, and serves a read-only Data workspace.
 
-* It does **not** analyse tokens, rank wallets, generate signals or trade. GATEWAY makes
-  provider requests only when asked; nothing in Phase 01 polls providers on its own.
-* Live trading is **rejected by configuration**; there are no wallets or keys, and
+* It does **not** rank wallets, score tokens, generate signals or trade. Nothing is
+  ingested automatically by default. Live intake and backfills are explicit, bounded
+  and budgeted.
+* Decoders are verified against synthetic fixtures built from published layouts, not
+  against captured mainnet traffic. USD valuation is not implemented.
+* Live trading is **rejected by configuration**. There are no wallets or keys, and
   GATEWAY refuses every transaction-sending or execution endpoint.
 * Paid provider features stay disabled.
 * It is not approved for public deployment.
 
 Roadmap: [docs/phases/ROADMAP.md](docs/phases/ROADMAP.md) · Phase details:
-[PHASE_00.md](docs/phases/PHASE_00.md), [PHASE_01.md](docs/phases/PHASE_01.md) ·
-GATEWAY: [docs/architecture/GATEWAY.md](docs/architecture/GATEWAY.md).
+[PHASE_00.md](docs/phases/PHASE_00.md), [PHASE_01.md](docs/phases/PHASE_01.md),
+[PHASE_02.md](docs/phases/PHASE_02.md) · GATEWAY:
+[docs/architecture/GATEWAY.md](docs/architecture/GATEWAY.md) · DATA ENGINE:
+[docs/architecture/DATA_ENGINE.md](docs/architecture/DATA_ENGINE.md).
 
 ## Technology
 
@@ -39,12 +46,13 @@ GATEWAY: [docs/architecture/GATEWAY.md](docs/architecture/GATEWAY.md).
 
 ## Architecture
 
-A modular monolith: seven backend crates (`core`, `config`, `observability`, `storage`,
-`gateway`, `api`, `app`) behind a same-origin reverse proxy, with API types generated from Rust into
+A modular monolith: eight backend crates (`core`, `config`, `observability`, `storage`,
+`gateway`, `data-engine`, `api`, `app`) behind a same-origin reverse proxy, with API types generated from Rust into
 TypeScript. See [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md).
 
 ```
 browser ─▶ frontend (nginx / Vite) ─▶ backend (Axum) ─▶ PostgreSQL
+                                          ├─ DATA ENGINE ─▶ (via GATEWAY)
                                           └─ GATEWAY ─▶ Helius · Jupiter · DEX Screener · Solana RPC
 ```
 
