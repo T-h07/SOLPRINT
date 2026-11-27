@@ -17,6 +17,7 @@ solprint-config = { path = "crates/solprint-config" }
 solprint-storage = { path = "crates/solprint-storage" }
 solprint-api = { path = "crates/solprint-api" }
 solprint-observability = { path = "crates/solprint-observability" }
+solprint-gateway = { path = "crates/solprint-gateway" }
 
 # Runtime / HTTP
 tokio = { version = "1.54.1", default-features = false }
@@ -25,6 +26,15 @@ axum = { version = "0.8.9", default-features = false }
 tower = { version = "0.5.3", default-features = false }
 tower-http = { version = "0.7.1", default-features = false }
 http-body-util = "0.1.5"
+# GATEWAY transport. TLS is rustls with the `ring` provider and the bundled
+# Mozilla roots (webpki-roots): no OpenSSL, no aws-lc C/NASM toolchain, and the
+# runtime image needs no CA bundle.
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = "1.0.12"
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "__rustls-tls", "url"] }
+futures-util = { version = "0.3.34", default-features = false, features = ["std", "sink"] }
+moka = { version = "0.12.16", default-features = false, features = ["future"] }
 
 # Data
 serde = { version = "1.0.229", features = ["derive"] }

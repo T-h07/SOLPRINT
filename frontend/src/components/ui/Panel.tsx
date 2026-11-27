@@ -70,7 +70,8 @@ export function DefinitionList({
   items,
   className,
 }: {
-  items: { term: string; value: ReactNode }[];
+  /** `wrap` lets a long value break across lines instead of truncating. */
+  items: { term: string; value: ReactNode; wrap?: boolean }[];
   className?: string | undefined;
 }) {
   return (
@@ -83,7 +84,9 @@ export function DefinitionList({
       {items.map((item) => (
         <div key={item.term} className="contents">
           <dt className="text-fg-muted">{item.term}</dt>
-          <dd className="m-0 min-w-0 truncate text-fg">{item.value}</dd>
+          <dd className={cn('m-0 min-w-0 text-fg', item.wrap ? 'break-words' : 'truncate')}>
+            {item.value}
+          </dd>
         </div>
       ))}
     </dl>

@@ -356,8 +356,8 @@ pull request passes three gates.
   monitoring viewport.
 - Baselines cover at least: Overview, Wallets, CORTEX detail, Positions, System/API
   health, live/paper safety states.
-- Baselines are generated and compared in a controlled CI environment (screenshot
-  rendering depends on environment).
+- Baselines are generated and compared in a controlled, pinned container environment
+  (screenshot rendering depends on environment).
 - Automated a11y scanning is a first line of QA and does not replace manual review.
 
 ### 8.2 Human visual gate
@@ -421,7 +421,7 @@ Every substantial frontend phase satisfies all of these before merge:
 | Stale state | time-sensitive regions expose freshness/staleness |
 | Responsive | no loss of critical information at defined breakpoints |
 | Screenshots | approved baselines for defined viewports |
-| Visual regression | unintended screenshot diffs fail CI |
+| Visual regression | unintended screenshot diffs fail local verification |
 | A11y scan | zero unresolved serious/critical automated findings |
 | Human review | explicit visual approval required before merge |
 | Template check | no stock shadcn/dashboard appearance accepted |

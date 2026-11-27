@@ -16,6 +16,8 @@ solprint-config.workspace = true
 solprint-storage.workspace = true
 solprint-api.workspace = true
 solprint-observability.workspace = true
+solprint-gateway.workspace = true
+solprint-core.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
 tokio-util.workspace = true
 tracing.workspace = true

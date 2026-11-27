@@ -8,8 +8,9 @@
 | `solprint-config` | core |
 | `solprint-observability` | config |
 | `solprint-storage` | core, config |
-| `solprint-api` | core, config, observability, storage |
-| `solprint-app` | api, config, observability, storage |
+| `solprint-gateway` | core, config, storage |
+| `solprint-api` | core, config, observability, storage, gateway |
+| `solprint-app` | api, config, core, gateway, observability, storage |
 
 Rules:
 
@@ -24,7 +25,12 @@ Rules:
 5. **Only `solprint-api` defines wire contracts.** Domain types are not serialised
    directly to clients; contracts are separate, versioned (`/api/v1`) and generated to
    TypeScript.
-6. **Secrets stay in `solprint-config`'s `Secret<T>`** until the exact point of use. No
+6. **Only `solprint-gateway` talks to external providers.** No other crate depends on an
+   HTTP or WebSocket client for provider access. Provider JSON is decoded inside GATEWAY;
+   other crates see only its normalized models and the traits in `traits.rs`. GATEWAY
+   persists through the `GatewayStore` trait, implemented for `solprint_storage::Database`
+   (and an in-memory store for tests); the SQL stays in `solprint-storage`.
+7. **Secrets stay in `solprint-config`'s `Secret<T>`** until the exact point of use. No
    crate logs a `Secret` (its `Debug` is redacted and it has no `Display`).
 
 ## Future modules

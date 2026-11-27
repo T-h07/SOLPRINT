@@ -21,7 +21,12 @@ export function ModeIndicator({ compact = false }: { compact?: boolean }) {
 
   if (status.isPending) {
     return (
-      <div className="flex items-center gap-3" aria-busy="true" aria-label="Loading operating mode">
+      <div
+        role="status"
+        className="flex items-center gap-3"
+        aria-busy="true"
+        aria-label="Loading operating mode"
+      >
         <Skeleton className="h-6 w-24" />
         {compact ? null : <Skeleton className="h-4 w-36" />}
       </div>

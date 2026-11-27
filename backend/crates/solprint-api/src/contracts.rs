@@ -2,15 +2,20 @@
 //!
 //! These Rust types are the single source of truth for the API shape. The
 //! TypeScript definitions in `frontend/src/types/generated/` are generated
-//! from them by `ts-rs` whenever `cargo test` runs, and CI fails if the
-//! committed TypeScript differs from what the Rust types produce.
+//! from them by `ts-rs` whenever `cargo test` runs, and `scripts/check.ps1`
+//! (also run by `scripts/verify.ps1`) fails if the committed TypeScript
+//! differs from what the Rust types produce.
 //!
 //! Numeric fields are bounded to `u32` (or annotated as `number`) so every
 //! value is exactly representable in JavaScript. Timestamps are UTC RFC 3339
 //! strings.
 
+pub mod gateway;
+
 use serde::Serialize;
 use ts_rs::TS;
+
+pub use gateway::GatewayHealthState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -115,15 +120,6 @@ pub enum ProviderId {
     SolanaRpc,
 }
 
-/// Integration state of an external provider.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[ts(export)]
-pub enum ProviderState {
-    /// No client for this provider exists yet (Phase 00). Nothing is measured.
-    NotInitialized,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[ts(export)]
@@ -139,10 +135,12 @@ pub struct ProviderStatus {
     pub id: ProviderId,
     pub name: String,
     pub role: String,
-    pub state: ProviderState,
+    /// Derived by GATEWAY from real traffic only (`UNKNOWN` until a request
+    /// has been made). No background probe exists.
+    pub state: GatewayHealthState,
     pub credential: CredentialState,
-    /// UTC time of the last real measurement. Always `null` until the
-    /// provider is integrated; historical diagnostics are never reported here.
+    /// UTC time of the last real request outcome (success or failure);
+    /// `null` until one happened. Historical diagnostics are never reported here.
     pub last_checked_at: Option<String>,
 }
 

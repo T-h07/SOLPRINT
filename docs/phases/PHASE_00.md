@@ -1,7 +1,13 @@
 # Phase 00 — Foundation
 
-Branch: `feature/00-foundation`. Status: **implemented, awaiting owner review.**
-Not merged into `develop`; no release or tag.
+Branch: `feature/00-foundation` (merged into `develop` as `3bc46cc`, branch deleted).
+Status: **accepted** — all criteria PASS, owner approval recorded 2026-11-26. No release or tag.
+
+> **Policy change in Phase 01.** SOLPRINT no longer uses hosted CI/CD. The GitHub Actions
+> workflow described below was removed on `feature/01-gateway`; its checks now run
+> locally through `scripts/verify.ps1` on the exact candidate commit. The CI results
+> recorded in this document (for example P00-T39) are kept unchanged as historical
+> evidence of Phase 00.
 
 ## Scope
 
@@ -113,4 +119,4 @@ is reachable; container images backend 123 MB, frontend 91.4 MB; idle memory bac
 | P00-T40 | Documentation complete and accurate | PASS | README, CLAUDE.md, architecture, development, design, phases |
 | P00-T41 | No sensitive files staged or committed | PASS | staged file review; gitleaks in CI |
 | P00-T42 | No future-phase functionality implemented | PASS | providers report state only; no ingestion/strategy/execution code |
-| P00-T43 | Owner approves UI and visual baselines | PENDING OWNER REVIEW | requires explicit owner approval |
+| P00-T43 | Owner approves UI and visual baselines | PASS | approved by the owner on 2026-11-26 (after merge into `develop`), before Phase 01 started |

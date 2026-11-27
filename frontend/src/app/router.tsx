@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { createBrowserRouter, type RouteObject } from 'react-router';
 
 import { AppShell } from '@/components/shell/AppShell.tsx';
+import { GatewayPage } from '@/pages/GatewayPage.tsx';
 import { NotFoundPage } from '@/pages/NotFoundPage.tsx';
 import { OverviewPage } from '@/pages/OverviewPage.tsx';
 import { SystemPage } from '@/pages/SystemPage.tsx';
@@ -26,6 +27,7 @@ export const routes: RouteObject[] = [
     errorElement: <RouteError />,
     children: [
       { index: true, element: <OverviewPage /> },
+      { path: 'gateway', element: <GatewayPage /> },
       { path: 'system', element: <SystemPage /> },
       ...(DesignSystemPage
         ? [

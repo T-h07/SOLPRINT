@@ -9,6 +9,9 @@ import { mockBackend, type Scenario, settle, VIEWPORTS } from '../support/mockAp
  */
 const pages: { name: string; path: string; scenario: Scenario; fullPage: boolean }[] = [
   { name: 'overview', path: '/', scenario: 'healthy', fullPage: true },
+  { name: 'gateway', path: '/gateway', scenario: 'healthy', fullPage: true },
+  { name: 'gateway-idle', path: '/gateway', scenario: 'gateway-idle', fullPage: true },
+  { name: 'gateway-pressure', path: '/gateway', scenario: 'gateway-pressure', fullPage: true },
   { name: 'system', path: '/system', scenario: 'healthy', fullPage: true },
   { name: 'design-system', path: '/design-system', scenario: 'healthy', fullPage: true },
   { name: 'overview-offline', path: '/', scenario: 'offline', fullPage: false },

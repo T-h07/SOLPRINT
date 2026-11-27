@@ -1,7 +1,8 @@
 //! PostgreSQL integration tests.
 //!
 //! Ignored by default because they need a disposable PostgreSQL server.
-//! Run with `scripts/test.ps1` (starts one) or, in CI, with
+//! Run with `scripts/test.ps1` (starts one) or, against another disposable
+//! server, with
 //! `SOLPRINT_TEST_DATABASE_URL` set and `-- --include-ignored`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]

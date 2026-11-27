@@ -23,7 +23,7 @@ provider, holds a key or executes a transaction.
   unreachable the shell shows `MODE UNVERIFIED`, never an assumed `PAPER`.
 * **Contracts are generated.** API response types are Rust structs
   (`solprint-api/src/contracts.rs`) exported to TypeScript with `ts-rs` into
-  `frontend/src/types/generated`. CI fails if the committed TypeScript drifts.
+  `frontend/src/types/generated`. `scripts/check.ps1` fails if the committed TypeScript drifts.
 
 ## Backend workspace (`backend/`)
 
@@ -32,9 +32,10 @@ provider, holds a key or executes a transaction.
 | `solprint-core` | Domain primitives: exact amounts (`Lamports`, `TokenAmount`, `BasisPoints`, `Price`), Solana identifiers, UTC timestamps, IDs (UUIDv7), `TradingMode`, `ReasonCode`, `DataFreshness`, `EventEnvelope` | none |
 | `solprint-config` | Typed configuration from env/.env, full validation, `Secret<T>`, live-trading rejection | reads env |
 | `solprint-observability` | `tracing` subscriber (pretty/JSON), filter policy, request-id header | stdout |
-| `solprint-storage` | PostgreSQL pool, embedded migrations, instance registration, health probe | database |
+| `solprint-storage` | PostgreSQL pool, embedded migrations, instance registration, health probe, GATEWAY ledger/usage/metric/checkpoint rows | database |
+| `solprint-gateway` | GATEWAY: the only provider access layer (Helius RPC + WebSocket, Jupiter, DEX Screener, Solana RPC fallback), budget, rate limits, scheduler, cache, coalescing, breakers, health, metrics. See [GATEWAY.md](GATEWAY.md) | outbound HTTPS/WSS |
 | `solprint-api` | Axum router, contracts, middleware (request id, access log, error envelope, security headers, limits) | HTTP |
-| `solprint-app` | The `solprint` binary: lifecycle, signals, graceful shutdown, `healthcheck` subcommand | process |
+| `solprint-app` | The `solprint` binary: lifecycle, signals, graceful shutdown, `healthcheck` and `gateway-diagnostics` subcommands | process |
 
 Dependency rules are in [MODULE_BOUNDARIES.md](MODULE_BOUNDARIES.md).
 
@@ -47,17 +48,20 @@ Dependency rules are in [MODULE_BOUNDARIES.md](MODULE_BOUNDARIES.md).
 4. Apply embedded migrations (`DATABASE_RUN_MIGRATIONS=true`) or verify they are all
    applied.
 5. Register the start in `solprint.instance` (stable `instance_id`, `start_count`).
-6. Bind (loopback unless `APP_ALLOW_NON_LOOPBACK=true`) and serve.
-7. On SIGTERM/SIGINT (Unix) or Ctrl-C/Ctrl-Break/close (Windows): stop accepting, drain
-   in-flight requests for up to 10 s, close the pool, exit 0.
+6. Build GATEWAY, load the credit ledger, start its flush task (and streams if enabled).
+7. Bind (loopback unless `APP_ALLOW_NON_LOOPBACK=true`) and serve.
+8. On SIGTERM/SIGINT (Unix) or Ctrl-C/Ctrl-Break/close (Windows): stop accepting, drain
+   in-flight requests for up to 10 s, stop GATEWAY with a final flush, close the pool,
+   exit 0.
 
-### HTTP surface (Phase 00)
+### HTTP surface
 
 | Route | Purpose |
 |---|---|
 | `GET /health/live` | Process is alive. Never touches dependencies. |
 | `GET /health/ready` | 200 `READY` when the database probe succeeds, 503 `NOT_READY` otherwise (structured body either way). |
-| `GET /api/v1/system/status` | Operating mode (`PAPER`, live disabled, `execution_capability: NONE`), database state, migrations, provider integration state (`NOT_INITIALIZED`), uptime. |
+| `GET /api/v1/system/status` | Operating mode (`PAPER`, live disabled, `execution_capability: NONE`), database state, migrations, provider health measured by GATEWAY (`UNKNOWN` until traffic), uptime. |
+| `GET /api/v1/gateway/{status,providers,usage,metrics,budgets,streams,cache}` | GATEWAY monitoring, read from local state and stored aggregates only (never triggers provider traffic). |
 | `GET /api/v1/system/version` | Name, version, API version, git commit (if built with one), build profile. |
 
 Every response carries `x-request-id` and security headers; every non-2xx response is a
@@ -72,6 +76,9 @@ are capped (`HTTP_BODY_LIMIT_BYTES`) and requests time out (`HTTP_REQUEST_TIMEOU
   edited.
 * Phase 00 schema: `solprint.instance` (singleton row: `instance_id`, `created_at`,
   `last_started_at`, `start_count`, `last_app_version`).
+* Phase 01 schema: `gateway_billing_cycles`, `gateway_usage_buckets`,
+  `gateway_metric_buckets` (per-minute, additive, pruned by retention) and
+  `gateway_stream_checkpoints`.
 * Compose creates two roles: `solprint_admin` (superuser, bootstrap only) and
   `solprint_app` (non-superuser, owns database `solprint`), which the backend uses.
 
@@ -83,7 +90,7 @@ server state, Radix primitives for accessible overlays. Structure:
 ```
 src/app         App, router, query client, error boundaries, build flags
 src/components  ui/ (design-system primitives) and shell/ (status bar, nav, indicators)
-src/features    feature panels (system/)
+src/features    feature panels (system/, gateway/)
 src/pages       routed pages
 src/lib         api client + guards + queries, formatting (numbers, time)
 src/types       generated contracts (never edit) + barrel
@@ -91,7 +98,7 @@ src/fixtures    labelled fixtures, imported only by the design-system showcase
 ```
 
 The `/design-system` showcase exists in development and `--mode showcase` builds only; it
-is statically removed from production bundles (verified in CI).
+is statically removed from production bundles (verified by `scripts/verify.ps1`).
 
 ## Deployment posture
 
@@ -152,7 +159,7 @@ dependency graph. The UI treats live activation and emergency stop as safety-cri
 | Modular monolith, Rust workspace | one deployable, compile-time boundaries, runs on consumer hardware | modules share a process; isolation is by crate rules, not network |
 | PostgreSQL only (no Redis/Kafka) | one stateful dependency; enough for Phase 00–01 | caching/broker added later only with evidence |
 | SQLx with embedded, forward-only migrations | checked SQL, migrations ship with the binary | no down-migrations; fixes are new migrations |
-| Contracts generated Rust → TypeScript (ts-rs) | single source of truth, CI drift check | backend build needed to change frontend types |
+| Contracts generated Rust → TypeScript (ts-rs) | single source of truth, local drift check | backend build needed to change frontend types |
 | Same-origin reverse proxy | no CORS surface, backend unpublished | proxy configuration in two places (Vite, nginx) |
 | Amounts as integer strings, `BigInt` in the UI | exact u64; no float drift | more verbose formatting code |
 | Playwright in a pinned container for visuals | reproducible fonts, nothing installed on the host | requires Docker for UI/visual suites |

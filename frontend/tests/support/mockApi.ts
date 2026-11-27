@@ -7,6 +7,16 @@
 import type { Page, Route } from '@playwright/test';
 
 import type { ReadyResponse, SystemStatus, VersionInfo } from '../../src/types/api.ts';
+import {
+  gatewayBudgets,
+  gatewayCache,
+  gatewayMetrics,
+  gatewayProviders,
+  gatewayStatus,
+  gatewayStreams,
+  gatewayUsage,
+  type GatewayVariant,
+} from './gatewayFixtures.ts';
 
 export const FIXED_NOW = Date.parse('2026-11-26T12:00:00.000Z');
 
@@ -21,39 +31,39 @@ export const statusFixture: SystemStatus = {
   database: {
     status: 'AVAILABLE',
     latency_us: 412,
-    migrations_applied: 1,
-    migrations_expected: 1,
+    migrations_applied: 2,
+    migrations_expected: 2,
   },
   providers: [
     {
       id: 'HELIUS',
       name: 'Helius',
       role: 'Primary RPC and WebSocket',
-      state: 'NOT_INITIALIZED',
+      state: 'HEALTHY',
       credential: 'CONFIGURED',
-      last_checked_at: null,
+      last_checked_at: '2026-11-26T11:59:58.412Z',
     },
     {
       id: 'JUPITER',
       name: 'Jupiter',
       role: 'Price and routing',
-      state: 'NOT_INITIALIZED',
+      state: 'HEALTHY',
       credential: 'ABSENT',
-      last_checked_at: null,
+      last_checked_at: '2026-11-26T11:59:58.412Z',
     },
     {
       id: 'DEX_SCREENER',
       name: 'DEX Screener',
       role: 'Market data',
-      state: 'NOT_INITIALIZED',
+      state: 'DEGRADED',
       credential: 'NOT_REQUIRED',
-      last_checked_at: null,
+      last_checked_at: '2026-11-26T11:58:03.000Z',
     },
     {
       id: 'SOLANA_RPC',
       name: 'Solana RPC',
       role: 'Fallback RPC',
-      state: 'NOT_INITIALIZED',
+      state: 'UNKNOWN',
       credential: 'NOT_REQUIRED',
       last_checked_at: null,
     },
@@ -82,14 +92,21 @@ export const versionFixture: VersionInfo = {
   build_profile: 'release',
 };
 
-export type Scenario = 'healthy' | 'database-down' | 'offline' | 'loading';
+export type Scenario =
+  'healthy' | 'database-down' | 'offline' | 'loading' | 'gateway-idle' | 'gateway-pressure';
+
+/** Scenarios that only change GATEWAY answer like `healthy` elsewhere. */
+const base = (s: Scenario): 'healthy' | 'database-down' | 'offline' | 'loading' =>
+  s === 'gateway-idle' || s === 'gateway-pressure' ? 'healthy' : s;
 
 const json = (route: Route, status: number, body: unknown) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
 /** Freeze the clock and route every API call to the chosen scenario. */
-export async function mockBackend(page: Page, scenario: Scenario): Promise<void> {
+export async function mockBackend(page: Page, full: Scenario): Promise<void> {
   await page.clock.setFixedTime(FIXED_NOW);
+  await mockGateway(page, full);
+  const scenario = base(full);
 
   await page.route('**/health/ready', (route) => {
     switch (scenario) {
@@ -116,7 +133,7 @@ export async function mockBackend(page: Page, scenario: Scenario): Promise<void>
             status: 'UNAVAILABLE',
             latency_us: null,
             migrations_applied: null,
-            migrations_expected: 1,
+            migrations_expected: 2,
           },
         } satisfies SystemStatus);
       case 'offline':
@@ -132,6 +149,29 @@ export async function mockBackend(page: Page, scenario: Scenario): Promise<void>
     }
     if (scenario === 'loading') return new Promise<void>(() => undefined);
     return json(route, 200, versionFixture);
+  });
+}
+
+async function mockGateway(page: Page, scenario: Scenario): Promise<void> {
+  const variant: GatewayVariant =
+    scenario === 'gateway-idle' ? 'idle' : scenario === 'gateway-pressure' ? 'pressure' : 'active';
+  const bodies: Record<string, () => unknown> = {
+    status: () => gatewayStatus(variant),
+    providers: () => gatewayProviders(variant),
+    budgets: () => gatewayBudgets(variant),
+    metrics: () => gatewayMetrics(variant),
+    streams: () => gatewayStreams(variant),
+    cache: () => gatewayCache(variant),
+    usage: () => gatewayUsage(variant, scenario !== 'database-down'),
+  };
+  await page.route('**/api/v1/gateway/**', (route) => {
+    if (scenario === 'offline') {
+      return route.fulfill({ status: 502, contentType: 'text/html', body: 'Bad Gateway' });
+    }
+    if (scenario === 'loading') return new Promise<void>(() => undefined);
+    const part = new URL(route.request().url()).pathname.split('/').pop() ?? '';
+    const body = bodies[part];
+    return body ? json(route, 200, body()) : json(route, 404, {});
   });
 }
 

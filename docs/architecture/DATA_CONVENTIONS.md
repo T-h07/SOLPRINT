@@ -50,12 +50,34 @@ apply to every future module.
 * `ReasonCode` is `UPPER_SNAKE_CASE`, 1–64 characters, and explains every non-obvious
   decision or rejection (e.g. `LIVE_TRADING_NOT_PERMITTED`).
 
+## Provider data (GATEWAY)
+
+Every value GATEWAY returns is a `GatewayResponse<T>` carrying `provider`, `provenance`
+(`DIRECT`, `FRESH_CACHE`, `STALE_CACHE`, `FALLBACK`, `RECOVERY`, `FIXTURE`), `freshness`
+(`FRESH`, `STALE`, `EXPIRED`, `UNAVAILABLE`, `UNKNOWN_SOURCE_AGE`), `observed_at`,
+`source_timestamp` (only when the provider supplies one), `context_slot`, `age` and
+`credits_charged`. Details: [GATEWAY.md](GATEWAY.md).
+
+* Provider numbers are parsed from text, never via floats: lamports and raw token
+  amounts as `u64`, prices as `Decimal` keeping every digit sent. Float fields such as
+  `uiAmount` are ignored.
+* RPC responses keep their commitment and context slot. `processed`/`confirmed` data can
+  be rolled back; only `finalized` is final.
+* Stream events carry slot, commitment, connection generation and provenance; continuity
+  is reported explicitly (`CONTINUOUS`, `RECOVERED`, `GAP`, `UNKNOWN`), never assumed.
+* Monitoring counters that are `u64` are sent as JSON numbers (`#[ts(type = "number")]`):
+  they are operational counts far below 2^53, unlike amounts, which stay strings.
+
 ## Honesty rules
 
 * A value that was not measured is `null` and rendered as `—`, never `0`.
-* Provider state is `NOT_INITIALIZED` with `last_checked_at: null` until GATEWAY measures
-  it. Historical diagnostics (e.g. earlier manual latency checks) are never reported as
-  current.
+* Provider health is `UNKNOWN` (shown as "Not measured") with `last_checked_at: null`
+  until GATEWAY has sent real traffic to it; there are no background probes. Historical
+  diagnostics (e.g. earlier manual latency checks) are never reported as current.
+* Cached provider data keeps its original `observed_at` and is labelled `FRESH_CACHE` or
+  `STALE_CACHE`; it is never presented as newly observed.
+* Local credit accounting is labelled as SOLPRINT's own estimate; the provider's
+  dashboard remains the authority for billing.
 * Fixtures and demo data are visibly labelled `FIXTURE` / `DEMO DATA` and never appear in
   production bundles.
 

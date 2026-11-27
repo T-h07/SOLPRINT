@@ -20,8 +20,13 @@ use sqlx::types::Uuid;
 use sqlx::{ConnectOptions, Row};
 use tokio::time::{Instant, sleep, timeout};
 
+pub mod gateway;
 #[cfg(feature = "test-support")]
 pub mod test_support;
+
+pub use gateway::{
+    BillingCycleRow, MetricDelta, PruneOutcome, StreamCheckpointRow, UsageDelta, UsageHistoryRow,
+};
 
 /// All migrations, embedded at compile time from `backend/migrations`.
 pub static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
@@ -46,7 +51,7 @@ pub enum StorageError {
 }
 
 impl StorageError {
-    fn from_sqlx(err: &sqlx::Error) -> Self {
+    pub(crate) fn from_sqlx(err: &sqlx::Error) -> Self {
         match err {
             sqlx::Error::Io(_)
             | sqlx::Error::Tls(_)

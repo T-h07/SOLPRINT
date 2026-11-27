@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-  Run the standard quality gate locally (the same checks as CI, minus the
-  steps that need containers). Fails on the first failing check.
+  Run the standard quality gate in the current checkout (the container-free
+  part of scripts/verify.ps1). Fails on the first failing check.
 
 .PARAMETER WithDatabase
   Also run PostgreSQL integration tests via scripts/test.ps1.
@@ -44,7 +44,16 @@ try {
 if (Test-DockerEngine) {
     Write-Step 'Compose configuration'
     Push-Location $RepoRoot
-    try { Invoke-Checked 'docker compose config' { docker compose config --quiet } } finally { Pop-Location }
+    try {
+        # A clean checkout (scripts/verify.ps1) has no .env: validate the
+        # structure against the example file's placeholder values instead.
+        if (Test-Path (Join-Path $RepoRoot '.env')) {
+            Invoke-Checked 'docker compose config' { docker compose config --quiet }
+        } else {
+            Write-Note 'no .env: validating against .env.example placeholders'
+            Invoke-Checked 'docker compose config' { docker compose --env-file .env.example config --quiet }
+        }
+    } finally { Pop-Location }
 } else { Write-Note 'Docker engine not reachable: compose validation skipped' }
 
 if ($WithDatabase) { & (Join-Path $PSScriptRoot 'test.ps1') -BackendOnly }
