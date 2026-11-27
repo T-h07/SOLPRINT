@@ -1,6 +1,6 @@
 import { X } from 'lucide-react';
 import { Dialog } from 'radix-ui';
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 
 import { IconButton } from './Button.tsx';
 
@@ -22,6 +22,9 @@ export function Drawer({
   description?: string;
   children: ReactNode;
 }) {
+  // Controlled drawers have no Dialog.Trigger, and Radix returns focus only to
+  // a trigger, so remember the element that opened the drawer ourselves.
+  const opener = useRef<HTMLElement | null>(null);
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -29,6 +32,23 @@ export function Drawer({
         <Dialog.Content
           className="fixed top-0 right-0 z-[var(--z-overlay)] flex h-full w-full max-w-md flex-col border-l border-line bg-base shadow-overlay"
           {...(description ? {} : { 'aria-describedby': undefined })}
+          // Focus the dialog itself on open, not the close button: a focused
+          // close button shows its tooltip, and the first Esc would only
+          // dismiss that tooltip instead of the drawer.
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            opener.current =
+              document.activeElement instanceof HTMLElement ? document.activeElement : null;
+            if (e.currentTarget instanceof HTMLElement) e.currentTarget.focus();
+          }}
+          onCloseAutoFocus={(e) => {
+            const target = opener.current;
+            opener.current = null;
+            if (target?.isConnected) {
+              e.preventDefault();
+              target.focus();
+            }
+          }}
         >
           <header className="flex h-11 items-center gap-3 border-b border-line px-3">
             <Dialog.Title className="text-md font-medium">{title}</Dialog.Title>
