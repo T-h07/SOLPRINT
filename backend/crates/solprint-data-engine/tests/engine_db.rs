@@ -1070,3 +1070,63 @@ async fn corrected_evidence_retracts_swaps_under_a_new_revision() {
     assert_eq!(events[0].aggregate_id, swap_id);
     assert_eq!(events[0].aggregate_revision, 2);
 }
+
+#[tokio::test]
+#[ignore = "requires SOLPRINT_TEST_DATABASE_URL (disposable PostgreSQL)"]
+async fn extreme_amounts_round_trip_exactly_through_the_schema() {
+    use solprint_data_engine::fixtures::{TxBuilder, spl_transfer};
+    use solprint_data_engine::programs::SPL_TOKEN_PROGRAM;
+
+    let src = Arc::new(MemorySource::default());
+    let user = fixtures::addr("user");
+    let friend = fixtures::addr("friend");
+    let mint = fixtures::addr("mint:max");
+    let (from, to) = (fixtures::addr("user:max"), fixtures::addr("friend:max"));
+    let json = TxBuilder::new("extremes", &user)
+        .ix(
+            SPL_TOKEN_PROGRAM,
+            &[&from, &to, &user],
+            spl_transfer(u64::MAX),
+        )
+        .token(&from, &mint, &user, 0, Some(u64::MAX), Some(0))
+        .token(&to, &mint, &friend, 0, Some(0), Some(u64::MAX))
+        .lamports(&user, u64::MAX, u64::MAX - 5_000)
+        .build();
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let sig = v["transaction"]["signatures"][0]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let slot = v["slot"].as_u64().unwrap();
+    src.txs.lock().unwrap().insert(sig.clone(), (json, slot));
+    let (_tdb, e) = engine(Arc::clone(&src)).await;
+    let db = e.database();
+    observe(&e, &sig).await;
+    drain(&e).await;
+    assert_eq!(job_state(&e, &sig).await.0, "COMPLETED");
+
+    let max = u64::MAX.to_string();
+    let d = db.de_transaction(&sig).await.unwrap().unwrap();
+    let delta = |acct: &str| {
+        d.balances
+            .iter()
+            .find(|b| b.account == acct && b.asset != "SOL")
+            .and_then(|b| b.delta.clone())
+    };
+    // NUMERIC(21,0) holds both signs of a full u64 swing; nothing is rounded.
+    assert_eq!(delta(&from), Some(format!("-{max}")));
+    assert_eq!(delta(&to), Some(max.clone()));
+    let native = d
+        .balances
+        .iter()
+        .find(|b| b.account == user && b.asset == "SOL")
+        .unwrap();
+    assert_eq!(native.pre_amount.as_deref(), Some(max.as_str()));
+    assert_eq!(native.delta.as_deref(), Some("-5000"));
+    assert!(
+        d.activities
+            .iter()
+            .any(|a| a.write.amount.as_deref() == Some(max.as_str())),
+        "the transfer amount is stored as an exact u64"
+    );
+}
