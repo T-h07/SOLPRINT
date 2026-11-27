@@ -1749,6 +1749,7 @@ dependencies = [
  "serde_json",
  "solprint-config",
  "solprint-core",
+ "solprint-data-engine",
  "solprint-gateway",
  "solprint-observability",
  "solprint-storage",

@@ -170,6 +170,9 @@ async fn run(config: Config) -> anyhow::Result<()> {
         gateway.clone(),
         BuildInfo::current(VERSION),
     );
+    if let Some((engine, _)) = &data_engine {
+        state.attach_data_engine(Arc::clone(engine));
+    }
 
     let shutdown = CancellationToken::new();
     let server = tokio::spawn(solprint_api::serve(listener, state, shutdown.clone()));

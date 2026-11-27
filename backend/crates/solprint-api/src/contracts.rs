@@ -10,6 +10,7 @@
 //! value is exactly representable in JavaScript. Timestamps are UTC RFC 3339
 //! strings.
 
+pub mod data;
 pub mod gateway;
 
 use serde::Serialize;
