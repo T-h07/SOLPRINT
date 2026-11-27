@@ -145,6 +145,18 @@ fn block_time(d: &DecodedTransaction) -> Option<UtcTimestamp> {
         .map(UtcTimestamp::from_offset_datetime)
 }
 
+/// Why swaps that disappear in a new revision are retracted: the evidence
+/// changed (`EVIDENCE_REVISION`), or only the decoder did (`DECODER_REVISION`).
+/// These are the values `de_swaps.retraction_reason` accepts.
+#[must_use]
+pub fn retraction_reason(state: &StoredTxState, new_content_sha256: &str) -> &'static str {
+    if state.content_sha256.as_deref() == Some(new_content_sha256) {
+        "DECODER_REVISION"
+    } else {
+        "EVIDENCE_REVISION"
+    }
+}
+
 /// Build the write set for a new revision (`state.current_revision + 1`).
 #[must_use]
 #[allow(clippy::too_many_lines)]
@@ -301,17 +313,20 @@ pub fn transaction_write(
             }),
         ));
     }
+    let mut gone_reason = None;
     for gone in state
         .canonical_swap_ids
         .iter()
         .filter(|id| !swaps.iter().any(|w| &w.swap_id == *id))
     {
+        let reason = *gone_reason
+            .get_or_insert_with(|| retraction_reason(state, &sha256_hex(&meta.raw_json)));
         outbox.push(event(
             events::SWAP_RETRACTED,
             "SWAP",
             gone.clone(),
             "NOT_APPLICABLE",
-            json!({"swapId": gone, "signature": sig, "reason": "DECODER_OR_EVIDENCE_REVISION"}),
+            json!({"swapId": gone, "signature": sig, "reason": reason}),
         ));
     }
     TransactionWrite {
@@ -451,6 +466,19 @@ mod tests {
             w.outbox
                 .iter()
                 .any(|o| o.event_type == events::SWAP_RETRACTED && o.aggregate_revision == 2)
+        );
+        // The reason is one the schema accepts, and names what changed.
+        assert_eq!(
+            retraction_reason(&state, &w.evidence.content_sha256),
+            "EVIDENCE_REVISION"
+        );
+        let same = StoredTxState {
+            content_sha256: Some(w.evidence.content_sha256.clone()),
+            ..state
+        };
+        assert_eq!(
+            retraction_reason(&same, &w.evidence.content_sha256),
+            "DECODER_REVISION"
         );
     }
 }

@@ -500,6 +500,7 @@ pub(crate) struct SwapQuery {
     protocol: Option<String>,
     status: Option<String>,
     include_retracted: Option<bool>,
+    verified_only: Option<bool>,
     cursor: Option<String>,
     limit: Option<i64>,
 }
@@ -515,6 +516,7 @@ pub(crate) async fn swaps(
         protocol: enum_param(q.protocol.as_ref())?,
         status: enum_param(q.status.as_ref())?,
         include_retracted: q.include_retracted.unwrap_or(false),
+        verified_only: q.verified_only.unwrap_or(false),
         before: cursor(q.cursor.as_ref())?,
         limit: lim,
     };

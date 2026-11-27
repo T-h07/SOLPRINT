@@ -491,6 +491,10 @@ pub struct SwapFilter {
     pub protocol: Option<String>,
     pub status: Option<String>,
     pub include_retracted: bool,
+    /// Only verified trades: canonical, `VERIFIED` classification and a
+    /// verified attribution (the rule behind `swaps_verified`). Ambiguous,
+    /// program-controlled and partially decoded swaps are excluded.
+    pub verified_only: bool,
     /// Keyset cursor: rows strictly after (slot, swap_id) in descending order.
     pub before: Option<(u64, String)>,
     pub limit: i64,
@@ -1803,7 +1807,7 @@ impl Database {
               WHERE backfill_id = (
                     SELECT backfill_id FROM solprint.de_backfills
                      WHERE NOT cancel_requested AND (
-                            status IN ('PENDING', 'PAUSED_BY_BUDGET', 'PAUSED_BY_PROVIDER', 'PAUSED_BY_QUEUE')
+                            status IN ('PENDING', 'PAUSED', 'PAUSED_BY_BUDGET', 'PAUSED_BY_PROVIDER', 'PAUSED_BY_QUEUE')
                          OR (status = 'RUNNING' AND (lease_expires_at IS NULL OR lease_expires_at < now() OR lease_owner = $1)))
                      ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED)
              RETURNING {BACKFILL_COLS}"
@@ -2338,6 +2342,8 @@ impl Database {
                 AND ($6::text IS NULL OR classification_status = $6)
                 AND ($7 OR canonical)
                 AND ($8::bigint IS NULL OR (slot, swap_id) < ($8, $9::text))
+                AND (NOT $11 OR (canonical AND classification_status = 'VERIFIED'
+                     AND attribution IN ('VERIFIED_OWNER', 'VERIFIED_AUTHORITY', 'VERIFIED_BENEFICIARY')))
               ORDER BY slot DESC, swap_id DESC LIMIT $10",
         )
         .bind(NETWORK)
@@ -2350,6 +2356,7 @@ impl Database {
         .bind(f.before.as_ref().map(|b| i64_of(b.0)))
         .bind(f.before.as_ref().map(|b| b.1.clone()))
         .bind(f.limit)
+        .bind(f.verified_only)
         .fetch_all(self.pool())
         .await
         .map_err(|x| e(&x))?;

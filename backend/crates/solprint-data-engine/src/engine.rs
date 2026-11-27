@@ -12,7 +12,9 @@ use solprint_config::DataEngineConfig;
 use solprint_core::{CommitmentLevel, TransactionSignature, UtcTimestamp};
 use solprint_gateway::Priority;
 use solprint_gateway::models::SignatureQuery;
-use solprint_gateway::stream::{StreamEventKind, StreamHandle, SubscriptionId, SubscriptionSpec};
+use solprint_gateway::stream::{
+    StreamEvent, StreamEventKind, StreamHandle, SubscriptionId, SubscriptionSpec,
+};
 use solprint_storage::data_engine::{
     BackfillPage, DeBackfill, DeCounts, DeJob, IssueWrite, NewObservation, OutboxWrite,
     PersistOutcome,
@@ -602,13 +604,16 @@ impl<S: ChainSource> Engine<S> {
         for _ in 0..PERSIST_CONFLICT_RETRIES {
             let state = self.db.de_tx_state(&job.signature).await?;
             let w = mapping::transaction_write(&decoded, &meta, &state);
+            // Swaps that vanish in this revision are retracted with the
+            // reason the schema records: new evidence, or a new decoder.
+            let reason = mapping::retraction_reason(&state, &w.evidence.content_sha256);
             match self
                 .db
                 .de_persist_transaction(
                     &w,
                     state.current_revision,
                     Some((job.job_id, self.owner)),
-                    "DECODER_OR_EVIDENCE_REVISION",
+                    reason,
                 )
                 .await?
             {
@@ -662,6 +667,13 @@ impl<S: ChainSource> Engine<S> {
                 if let Err(e) = me.process_job(&job, &c).await {
                     tracing::warn!(target: "solprint::data_engine", job = job.job_id, error = %e, "job processing failed");
                     me.metrics.error("JOB_ERROR");
+                    // Hand the job back with backoff instead of leaving it
+                    // leased until the lease expires. Attempts still count, so
+                    // a persistent failure ends in quarantine.
+                    let _ = me
+                        .db
+                        .de_retry_job(job.job_id, me.owner, "JOB_ERROR", backoff(job.attempts))
+                        .await;
                 }
             });
         }
@@ -1134,6 +1146,85 @@ impl<S: ChainSource> Engine<S> {
 
     // ---- live streams --------------------------------------------------------------------------
 
+    /// Record one GATEWAY stream event: a logs notification or a recovered
+    /// signature becomes an observation, and a gap or unknown continuity becomes
+    /// an open quality issue on the target. Other kinds are ignored.
+    pub async fn record_stream_event(
+        &self,
+        ev: &StreamEvent,
+        tid: Option<Uuid>,
+        prio: i16,
+    ) -> Result<(), EngineError> {
+        match &ev.kind {
+            StreamEventKind::Logs {
+                signature, failed, ..
+            } => {
+                bump(&self.metrics.stream_observations);
+                self.observe(
+                    signature.as_str(),
+                    "LIVE_STREAM",
+                    tid,
+                    ev.commitment,
+                    ev.context_slot,
+                    Some(*failed),
+                    prio,
+                )
+                .await
+                .map(|_| ())
+            }
+            StreamEventKind::Recovered {
+                signature,
+                slot,
+                failed,
+                ..
+            } => {
+                bump(&self.metrics.stream_observations);
+                self.observe(
+                    signature.as_str(),
+                    "STREAM_RECOVERY",
+                    tid,
+                    ev.commitment,
+                    Some(*slot),
+                    Some(*failed),
+                    prio,
+                )
+                .await
+                .map(|_| ())
+            }
+            StreamEventKind::Gap {
+                reason,
+                from_slot,
+                to_slot,
+            } => {
+                bump(&self.metrics.stream_gaps);
+                let subject = format!(
+                    "stream:{}:{}",
+                    tid.map(|t| t.to_string()).unwrap_or_default(),
+                    ev.generation
+                );
+                let mut w = issue(
+                    &subject,
+                    IssueCode::StreamGap,
+                    format!("{reason} {from_slot:?}..{to_slot:?}"),
+                );
+                w.target_id = tid;
+                self.db.de_record_issue(&w).await.map_err(EngineError::from)
+            }
+            StreamEventKind::ContinuityUnknown { reason } => {
+                bump(&self.metrics.stream_gaps);
+                let subject = format!(
+                    "stream:{}:{}",
+                    tid.map(|t| t.to_string()).unwrap_or_default(),
+                    ev.generation
+                );
+                let mut w = issue(&subject, IssueCode::ContinuityUnknown, *reason);
+                w.target_id = tid;
+                self.db.de_record_issue(&w).await.map_err(EngineError::from)
+            }
+            _ => Ok(()),
+        }
+    }
+
     async fn consume_streams(self: Arc<Self>, handle: StreamHandle, cancel: CancellationToken) {
         let Some(mut rx) = handle.take_events() else {
             tracing::warn!(target: "solprint::data_engine", "stream events already taken; live intake disabled");
@@ -1178,74 +1269,7 @@ impl<S: ChainSource> Engine<S> {
             };
             let target = ev.subscription.and_then(|s| subs.get(&s).copied());
             let (tid, prio) = (target.map(|t| t.0), target.map_or(2, |t| t.1));
-            let r = match &ev.kind {
-                StreamEventKind::Logs {
-                    signature, failed, ..
-                } => {
-                    bump(&self.metrics.stream_observations);
-                    self.observe(
-                        signature.as_str(),
-                        "LIVE_STREAM",
-                        tid,
-                        ev.commitment,
-                        ev.context_slot,
-                        Some(*failed),
-                        prio,
-                    )
-                    .await
-                    .map(|_| ())
-                }
-                StreamEventKind::Recovered {
-                    signature,
-                    slot,
-                    failed,
-                    ..
-                } => {
-                    bump(&self.metrics.stream_observations);
-                    self.observe(
-                        signature.as_str(),
-                        "STREAM_RECOVERY",
-                        tid,
-                        ev.commitment,
-                        Some(*slot),
-                        Some(*failed),
-                        prio,
-                    )
-                    .await
-                    .map(|_| ())
-                }
-                StreamEventKind::Gap {
-                    reason,
-                    from_slot,
-                    to_slot,
-                } => {
-                    bump(&self.metrics.stream_gaps);
-                    let subject = format!(
-                        "stream:{}:{}",
-                        tid.map(|t| t.to_string()).unwrap_or_default(),
-                        ev.generation
-                    );
-                    let mut w = issue(
-                        &subject,
-                        IssueCode::StreamGap,
-                        format!("{reason} {from_slot:?}..{to_slot:?}"),
-                    );
-                    w.target_id = tid;
-                    self.db.de_record_issue(&w).await.map_err(EngineError::from)
-                }
-                StreamEventKind::ContinuityUnknown { reason } => {
-                    bump(&self.metrics.stream_gaps);
-                    let subject = format!(
-                        "stream:{}:{}",
-                        tid.map(|t| t.to_string()).unwrap_or_default(),
-                        ev.generation
-                    );
-                    let mut w = issue(&subject, IssueCode::ContinuityUnknown, *reason);
-                    w.target_id = tid;
-                    self.db.de_record_issue(&w).await.map_err(EngineError::from)
-                }
-                _ => Ok(()),
-            };
+            let r = self.record_stream_event(&ev, tid, prio).await;
             if let Err(e) = r {
                 tracing::warn!(target: "solprint::data_engine", error = %e, "stream event not recorded");
             }
