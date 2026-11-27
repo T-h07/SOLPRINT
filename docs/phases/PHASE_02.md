@@ -102,7 +102,7 @@ The last three are fixed in `ca204e9`. A pane-width defect in the Backfills pane
 
 ## Owner actions
 
-1. **Review and approve the visual candidates** (P02-T85). New:
+1. ~~Review and approve the visual candidates~~ — **approved by the owner on 2026-11-27** (P02-T85). New:
    - `data-{1920x1080,1440x900,1280x800,1024x768,390x844}`;
    - `data-empty-{1440x900,390x844}`;
    - `data-database-down-{1440x900,390x844}`.
@@ -245,7 +245,7 @@ No criterion claims verification against a live provider.
 | P02-T82 | Required responsive viewports pass | PASS | No horizontal overflow on `/data` at all five standard viewports (UI tests); visual baselines at 1920/1440/1280/1024/390 |
 | P02-T83 | Accessibility and keyboard checks pass | PASS | axe clean in data states; keyboard inspector with focus return (`c5bf345`); `tests/ui` 56/56 |
 | P02-T84 | Screenshot candidates are captured and inspected | PASS | Candidates generated in the pinned container and inspected, including the decoder pane and the Backfills fix at 390, 1440 and 1920 px. The desktop first-viewport limitation is recorded above |
-| P02-T85 | Project owner approves the new visual implementation | PENDING OWNER REVIEW | See Owner actions 1 |
+| P02-T85 | Project owner approves the new visual implementation | PASS | Owner approved the visual baselines committed at `5631df8` (verified by `verify.ps1`) on 2026-11-27 ("Approve baselines") |
 
 ### Security and delivery
 
@@ -277,7 +277,7 @@ Exit code 0, `VERIFY PASSED (full gate)`. All 18 checks PASS:
 - the production bundle excludes fixtures and the showcase;
 - `test.ps1`: Rust 300, including the 15 Data Engine PostgreSQL tests;
 - cargo deny (advisories, bans, licences, sources) and npm audit;
-- Playwright ui 56 and visual 37 (the Phase 02 baselines are candidates; see P02-T85);
+- Playwright ui 56 and visual 37 (Phase 02 baselines since approved; see P02-T85);
 - clean image builds, container hardening, smoke test and e2e 6 against the isolated
   stack;
 - no configured secret in the container logs.
