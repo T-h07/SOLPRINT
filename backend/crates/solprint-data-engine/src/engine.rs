@@ -39,6 +39,8 @@ const IDLE_POLL: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(300);
 const MAINTENANCE_INTERVAL: Duration = Duration::from_secs(30);
 const RETENTION_INTERVAL: Duration = Duration::from_secs(3_600);
+/// How often live subscriptions are reconciled with the enabled targets.
+const TARGET_RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
 /// After this many inconclusive checks, finality tracking stops
 /// (`FINALITY_UNKNOWN` stays visible; nothing is assumed).
 const MAX_FINALITY_CHECKS: i32 = 20;
@@ -270,6 +272,7 @@ pub struct Engine<S: ChainSource> {
     owner: Uuid,
     metrics: Arc<Metrics>,
     counts: RwLock<Option<CountsCache>>,
+    extra_consumers: RwLock<Vec<String>>,
 }
 
 impl<S: ChainSource> Engine<S> {
@@ -283,6 +286,34 @@ impl<S: ChainSource> Engine<S> {
             owner: Uuid::new_v4(),
             metrics: Arc::new(Metrics::default()),
             counts: RwLock::new(None),
+            extra_consumers: RwLock::new(Vec::new()),
+        }
+    }
+
+    /// Outbox consumers whose delivery gates outbox retention: the built-in
+    /// diagnostic consumer plus every registered module consumer (RADAR).
+    #[must_use]
+    pub fn consumers(&self) -> Vec<String> {
+        let mut c = vec![DIAGNOSTIC_CONSUMER.to_owned()];
+        c.extend(
+            self.extra_consumers
+                .read()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .cloned(),
+        );
+        c
+    }
+
+    /// Register a module's outbox consumer so retention never deletes an
+    /// event that consumer has not yet received.
+    pub fn register_consumer(&self, name: &str) {
+        let mut c = self
+            .extra_consumers
+            .write()
+            .unwrap_or_else(PoisonError::into_inner);
+        if !c.iter().any(|x| x == name) {
+            c.push(name.to_owned());
         }
     }
 
@@ -1139,7 +1170,7 @@ impl<S: ChainSource> Engine<S> {
                 self.cfg.evidence_retention_days,
                 self.cfg.job_retention_days,
                 self.cfg.outbox_retention_days,
-                &[DIAGNOSTIC_CONSUMER.to_owned()],
+                &self.consumers(),
             )
             .await?)
     }
@@ -1230,6 +1261,44 @@ impl<S: ChainSource> Engine<S> {
             tracing::warn!(target: "solprint::data_engine", "stream events already taken; live intake disabled");
             return;
         };
+        let mut subs: HashMap<SubscriptionId, (Uuid, i16)> = HashMap::new();
+        self.reconcile_subscriptions(&handle, &mut subs).await;
+        let mut reconcile = tokio::time::interval(TARGET_RECONCILE_INTERVAL);
+        reconcile.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        reconcile.tick().await;
+        loop {
+            let ev = tokio::select! {
+                () = cancel.cancelled() => break,
+                _ = reconcile.tick() => {
+                    self.reconcile_subscriptions(&handle, &mut subs).await;
+                    continue;
+                }
+                ev = rx.recv() => match ev { Some(ev) => ev, None => break },
+            };
+            let target = ev.subscription.and_then(|s| subs.get(&s).copied());
+            let (tid, prio) = (target.map(|t| t.0), target.map_or(2, |t| t.1));
+            let r = self.record_stream_event(&ev, tid, prio).await;
+            if let Err(e) = r {
+                tracing::warn!(target: "solprint::data_engine", error = %e, "stream event not recorded");
+            }
+        }
+        for id in subs.keys() {
+            let _ = handle.unsubscribe(*id).await;
+        }
+    }
+}
+
+impl<S: ChainSource> Engine<S> {
+    /// Bring live subscriptions in line with the enabled wallet targets:
+    /// subscribe targets that were enabled (for example by RADAR monitoring)
+    /// and unsubscribe targets that were disabled. At most
+    /// `max_active_targets` are subscribed; existing subscriptions are kept,
+    /// so an unchanged target set causes no subscription churn.
+    async fn reconcile_subscriptions(
+        &self,
+        handle: &StreamHandle,
+        subs: &mut HashMap<SubscriptionId, (Uuid, i16)>,
+    ) {
         let targets = match self.db.de_targets().await {
             Ok(t) => t,
             Err(e) => {
@@ -1237,12 +1306,24 @@ impl<S: ChainSource> Engine<S> {
                 return;
             }
         };
-        let mut subs: HashMap<SubscriptionId, (Uuid, i16)> = HashMap::new();
-        for t in targets
+        let wanted: Vec<_> = targets
             .iter()
             .filter(|t| t.enabled && t.target_type == "WALLET_ADDRESS")
             .take(self.cfg.max_active_targets)
-        {
+            .collect();
+        let stale: Vec<SubscriptionId> = subs
+            .iter()
+            .filter(|(_, (tid, _))| !wanted.iter().any(|t| t.target_id == *tid))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in stale {
+            let _ = handle.unsubscribe(id).await;
+            subs.remove(&id);
+        }
+        for t in wanted {
+            if subs.values().any(|(tid, _)| *tid == t.target_id) {
+                continue;
+            }
             let Ok(addr) = wallet(&t.address) else {
                 continue;
             };
@@ -1261,21 +1342,6 @@ impl<S: ChainSource> Engine<S> {
                     tracing::warn!(target: "solprint::data_engine", code = e.code(), "target subscription failed")
                 }
             }
-        }
-        loop {
-            let ev = tokio::select! {
-                () = cancel.cancelled() => break,
-                ev = rx.recv() => match ev { Some(ev) => ev, None => break },
-            };
-            let target = ev.subscription.and_then(|s| subs.get(&s).copied());
-            let (tid, prio) = (target.map(|t| t.0), target.map_or(2, |t| t.1));
-            let r = self.record_stream_event(&ev, tid, prio).await;
-            if let Err(e) = r {
-                tracing::warn!(target: "solprint::data_engine", error = %e, "stream event not recorded");
-            }
-        }
-        for id in subs.keys() {
-            let _ = handle.unsubscribe(*id).await;
         }
     }
 }
