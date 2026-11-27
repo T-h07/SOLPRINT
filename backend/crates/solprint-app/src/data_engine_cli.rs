@@ -6,11 +6,15 @@
 //!
 //! ```text
 //! data-engine status
+//! data-engine decoders                   (local registry; no database)
+//! data-engine jobs [STATE] [--limit N]
+//! data-engine issues [--severity S] [--signature SIG] [--limit N]
 //! data-engine targets list
 //! data-engine targets add <ADDRESS> [--label L] [--priority P2..P5] [--commitment confirmed|finalized]
 //! data-engine targets enable|disable <TARGET_ID>
 //! data-engine ingest <SIGNATURE> [--finalized] [--live]
-//! data-engine backfill create <ADDRESS> [--target ID] [--pages N] [--max-signatures N] [--min-slot S] [--until SIG]
+//! data-engine backfill create <ADDRESS> [--target ID] [--pages N] [--max-signatures N] [--min-slot S] [--until SIG] [--yes]
+//!   (without --yes: prints the credit estimate and creates nothing)
 //! data-engine backfill list
 //! data-engine backfill cancel <BACKFILL_ID>
 //! data-engine reprocess [--all] [--limit N]
@@ -35,8 +39,7 @@ use solprint_storage::data_engine::{NewBackfill, NewTarget};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-const USAGE: &str =
-    "usage: solprint data-engine <status|targets|ingest|backfill|reprocess|decode-fixture> ...";
+const USAGE: &str = "usage: solprint data-engine <status|decoders|jobs|issues|targets|ingest|backfill|reprocess|decode-fixture> ...";
 
 fn flag(args: &[String], name: &str) -> Option<String> {
     args.iter()
@@ -60,6 +63,16 @@ pub fn run(args: &[String]) -> ExitCode {
     };
     if cmd == "decode-fixture" {
         return decode_fixture(args.get(1).map(String::as_str));
+    }
+    if cmd == "decoders" {
+        // Local registry only: no configuration, database or provider needed.
+        for d in Registry::standard().iter() {
+            println!(
+                "{}",
+                json!({"protocol": d.protocol(), "programId": d.program_id(), "decoderVersion": DECODER_VERSION})
+            );
+        }
+        return ExitCode::SUCCESS;
     }
     let config = match Config::load() {
         Ok(c) => c,
@@ -117,6 +130,46 @@ async fn dispatch(
                     "backfillsActive": c.backfills_active,
                 })
             );
+            Ok(())
+        }
+        "jobs" => {
+            let state = rest
+                .first()
+                .filter(|v| !v.starts_with("--"))
+                .map(String::as_str);
+            let limit = flag(rest, "--limit")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(50_i64)
+                .clamp(1, 500);
+            for j in db.de_jobs(state, limit).await.map_err(s)? {
+                println!(
+                    "{}",
+                    json!({"jobId": j.job_id, "signature": j.signature, "state": j.state, "source": j.source,
+                           "priority": j.priority, "commitment": j.required_commitment, "attempts": j.attempts,
+                           "maxAttempts": j.max_attempts, "lastErrorCode": j.last_error_code,
+                           "updatedAt": j.updated_at.to_string()})
+                );
+            }
+            Ok(())
+        }
+        "issues" => {
+            let limit = flag(rest, "--limit")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(50_i64)
+                .clamp(1, 500);
+            let severity = flag(rest, "--severity");
+            let signature = flag(rest, "--signature");
+            for i in db
+                .de_issues(signature.as_deref(), severity.as_deref(), false, limit)
+                .await
+                .map_err(s)?
+            {
+                println!(
+                    "{}",
+                    json!({"issueId": i.issue_id, "code": i.code, "severity": i.severity, "signature": i.signature,
+                           "detail": i.detail, "occurrences": i.occurrences, "lastSeenAt": i.last_seen_at.to_string()})
+                );
+            }
             Ok(())
         }
         "targets" => targets(rest, db).await,
@@ -287,7 +340,28 @@ async fn backfill(rest: &[String], config: &Config, db: &Database) -> Result<(),
                 i32::try_from(v.min(max)).map_err(|_| format!("{name} out of range"))
             };
             let pages = num("--pages", de.backfill_max_pages, de.backfill_max_pages)?;
+            let max_signatures = num(
+                "--max-signatures",
+                de.backfill_max_signatures,
+                de.backfill_max_signatures,
+            )?;
             let page_size = i32::from(de.backfill_page_size);
+            // Upper bound, in Helius credits: one getSignaturesForAddress per
+            // page plus one getTransaction per discovered signature (finality
+            // checks batch up to 256 signatures per credit and are excluded).
+            let credits_estimated = pages.saturating_add(max_signatures);
+            if !has(rest, "--yes") {
+                println!(
+                    "{}",
+                    json!({"address": address, "maxPages": pages, "pageSize": page_size,
+                           "maxSignatures": max_signatures, "estimatedCreditsUpperBound": credits_estimated,
+                           "created": false})
+                );
+                println!(
+                    "Nothing created. Re-run with --yes to create this backfill; it runs only while the app runs with DATA_ENGINE_BACKFILL_ENABLED=true, under GATEWAY budget admission."
+                );
+                return Ok(());
+            }
             let b = db
                 .de_create_backfill(&NewBackfill {
                     backfill_id: Uuid::new_v4(),
@@ -299,21 +373,15 @@ async fn backfill(rest: &[String], config: &Config, db: &Database) -> Result<(),
                     min_slot: flag(rest, "--min-slot").and_then(|v| v.parse().ok()),
                     page_size,
                     max_pages: pages,
-                    max_signatures: num(
-                        "--max-signatures",
-                        de.backfill_max_signatures,
-                        de.backfill_max_signatures,
-                    )?,
-                    // One getSignaturesForAddress request per page; the
-                    // per-transaction fetches are budgeted separately.
-                    credits_estimated: pages,
+                    max_signatures,
+                    credits_estimated,
                 })
                 .await
                 .map_err(s)?;
             println!(
                 "{}",
                 json!({"backfillId": b.backfill_id, "status": b.status, "maxPages": b.max_pages, "maxSignatures": b.max_signatures,
-                       "enabled": de.backfill_enabled})
+                       "estimatedCreditsUpperBound": b.credits_estimated, "enabled": de.backfill_enabled})
             );
             if !de.backfill_enabled {
                 println!(
@@ -349,34 +417,60 @@ async fn backfill(rest: &[String], config: &Config, db: &Database) -> Result<(),
 fn decode_fixture(name: Option<&str>) -> ExitCode {
     let reg = Registry::standard();
     let mut found = false;
+    let mut mismatches = 0_u32;
     for f in fixtures::catalog() {
         if name.is_some_and(|n| n != f.name) {
             continue;
         }
         found = true;
         match decode(&f.json, &reg) {
-            Ok(d) => println!(
-                "{}",
-                json!({
-                    "fixture": f.name,
-                    "dataLabel": "FIXTURE",
-                    "status": d.status.as_str(),
-                    "protocols": d.protocols,
-                    "activities": d.activities.iter().map(|a| a.kind.as_str()).collect::<Vec<_>>(),
-                    "swaps": d.swaps.iter().map(|s| json!({
-                        "protocol": s.protocol,
-                        "attribution": s.attribution.as_str(),
-                        "inputAmount": s.input.amount.map(|v| v.to_string()),
-                        "outputAmount": s.output.amount.map(|v| v.to_string()),
-                        "status": s.status.as_str(),
-                    })).collect::<Vec<_>>(),
-                    "issues": d.issues.iter().map(|i| i.code.as_str()).collect::<Vec<_>>(),
-                })
-            ),
-            Err(e) => println!("{}", json!({"fixture": f.name, "error": e.to_string()})),
+            Ok(d) => {
+                // Compare with the fixture's independently stated expectation.
+                let e = &f.expect;
+                let first = d.swaps.first();
+                let matches = d.swaps.len() == e.swaps
+                    && d.status.as_str() == e.tx_status
+                    && first.map(|s| s.protocol) == e.protocol
+                    && first.and_then(|s| s.input.amount) == e.input_amount
+                    && first.and_then(|s| s.output.amount) == e.output_amount
+                    && first.map(|s| s.status.as_str()) == e.swap_status;
+                if !matches {
+                    mismatches = mismatches.saturating_add(1);
+                }
+                println!(
+                    "{}",
+                    json!({
+                        "fixture": f.name,
+                        "dataLabel": "FIXTURE",
+                        "matchesExpected": matches,
+                        "status": d.status.as_str(),
+                        "protocols": d.protocols,
+                        "activities": d.activities.iter().map(|a| a.kind.as_str()).collect::<Vec<_>>(),
+                        "swaps": d.swaps.iter().map(|s| json!({
+                            "protocol": s.protocol,
+                            "attribution": s.attribution.as_str(),
+                            "inputAmount": s.input.amount.map(|v| v.to_string()),
+                            "outputAmount": s.output.amount.map(|v| v.to_string()),
+                            "status": s.status.as_str(),
+                        })).collect::<Vec<_>>(),
+                        "issues": d.issues.iter().map(|i| i.code.as_str()).collect::<Vec<_>>(),
+                    })
+                );
+            }
+            Err(e) => {
+                mismatches = mismatches.saturating_add(1);
+                println!(
+                    "{}",
+                    json!({"fixture": f.name, "matchesExpected": false, "error": e.to_string()})
+                );
+            }
         }
     }
-    if found {
+    if found && mismatches > 0 {
+        fail(&format!(
+            "{mismatches} fixture(s) did not match their expected result"
+        ))
+    } else if found {
         ExitCode::SUCCESS
     } else {
         fail("unknown fixture")
