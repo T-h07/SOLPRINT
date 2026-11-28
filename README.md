@@ -8,7 +8,7 @@ and automated trading strategies.
 
 ## Development status
 
-**Phase 03 — RADAR** (on `feature/03-wallet-discovery`, awaiting owner review).
+**Phase 03 — RADAR** (complete, merged into `develop`).
 Phases 00 (foundation), 01 (GATEWAY, the single read-only access layer to Helius,
 Jupiter, DEX Screener and the public Solana RPC, with budgets, rate limits and caching)
 and 02 (DATA ENGINE) are complete and merged into `develop`.

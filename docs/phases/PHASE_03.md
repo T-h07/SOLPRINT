@@ -1,7 +1,7 @@
 # Phase 03 — RADAR (autonomous wallet discovery)
 
 Branch: `feature/03-wallet-discovery` (based on `develop` at `d2e27c8`, Phase 02 merged).
-Status: **implemented, awaiting owner review.** Not merged; no release or tag.
+Status: **complete; owner-approved and merged into `develop` on 2026-11-28.** No release or tag.
 
 ## Scope
 
@@ -99,7 +99,7 @@ screening and scheduler. They are consolidated as sections of
 
 ## Owner actions
 
-1. Review the visual candidates (P03-T96). New, in
+1. ~~Review the visual candidates~~ — **approved by the owner on 2026-11-28** (P03-T96). New, in
    `frontend/tests/visual/__screenshots__/pages.spec.ts/`:
    - `radar-{1920x1080,1440x900,1280x800,1024x768,390x844}`;
    - `radar-empty-{1440x900,390x844}`;
@@ -255,7 +255,7 @@ No criterion claims verification against a live provider.
 | P03-T93 | Required responsive viewports pass | PASS | Visual `radar-*` at 1920, 1440, 1280, 1024 and 390; overflow check includes `/radar` |
 | P03-T94 | Accessibility and keyboard checks pass | PASS | axe run on `/radar`; the keyboard inspector test |
 | P03-T95 | Screenshot candidates are captured and inspected | PASS | 11 new candidates captured by `playwright.ps1 -Project visual` and inspected at each viewport (the mobile wallet controls were moved into the panel body after inspection) |
-| P03-T96 | Project owner approves the new visual implementation | PENDING OWNER REVIEW | Owner actions 1 |
+| P03-T96 | Project owner approves the new visual implementation | PASS | Approved by the owner on 2026-11-28 (all Phase 03 work, including the 11 `radar-*` baselines at `0625cf8`) |
 
 ### Security and delivery
 
@@ -288,7 +288,7 @@ Exit code 0. All 18 checks PASS:
 - the production bundle excludes fixtures and the showcase;
 - `test.ps1`: Rust 401, including the 9 RADAR and 16 DATA ENGINE PostgreSQL tests;
 - cargo deny (advisories, bans, licences, sources) and npm audit;
-- Playwright ui 70 and visual 48 (the 11 `radar-*` baselines are candidates; P03-T96);
+- Playwright ui 70 and visual 48 (the 11 `radar-*` baselines, since approved; P03-T96);
 - clean image builds, container hardening, smoke test and e2e 6 against the isolated
   stack;
 - no configured secret in the container logs.
@@ -297,4 +297,4 @@ An earlier run on `17037ed` failed one check: the bundle guard found a test-only
 `FIXTURE` label in the RADAR label map. It was removed in `48b0d1c`; the other 17 checks
 passed in that run too.
 
-Commits after `48b0d1c` change this document only.
+Commits after `48b0d1c` change documentation only.
