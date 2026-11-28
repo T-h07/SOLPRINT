@@ -171,6 +171,7 @@ mints in fixtures are synthetic.
   * a restart resumes from durable state without duplicate jobs;
   * operator controls and registry queries;
   * dormancy is coverage-aware, and new activity reactivates a wallet.
+  * eight concurrent claimers never lease the same job twice (`FOR UPDATE SKIP LOCKED`).
 * `tests/radar_scale.rs`: an opt-in registry scale benchmark (`SOLPRINT_RADAR_SCALE=1`,
   100 to 10,000 wallets). It is ignored and a no-op in routine runs
   ([RADAR_CAPACITY_MODEL.md](../architecture/RADAR_CAPACITY_MODEL.md)).

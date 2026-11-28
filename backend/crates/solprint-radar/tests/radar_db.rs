@@ -814,3 +814,59 @@ async fn dormancy_is_coverage_aware_and_new_activity_reactivates() {
         "{jobs:?}"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires SOLPRINT_TEST_DATABASE_URL (disposable PostgreSQL)"]
+async fn concurrent_claims_never_lease_a_job_twice() {
+    let w = world().await;
+    let class = work::INITIAL_HISTORY.to_owned();
+    for i in 0..40 {
+        let created =
+            w.db.radar_create_job(&solprint_storage::radar::NewJob {
+                job_id: uuid::Uuid::new_v4(),
+                work_class: class.clone(),
+                subject_kind: "WALLET".into(),
+                subject: addr(&format!("wallet:claim-{i}")),
+                origin: "OPERATOR".into(),
+                bucket: None,
+                cycle_id: None,
+                priority: 50,
+                signature_limit: 50,
+                lookback_days: Some(7),
+                start_before_signature: None,
+                until_signature: None,
+                min_slot: None,
+                commitment: "finalized".into(),
+                estimated_credits: 51,
+                next_run_at: None,
+            })
+            .await
+            .unwrap();
+        assert!(created.is_some());
+    }
+    // Eight workers claim at once; SKIP LOCKED must hand each job to one.
+    let mut handles = Vec::new();
+    for _ in 0..8 {
+        let db = w.db.clone();
+        let classes = vec![class.clone()];
+        handles.push(tokio::spawn(async move {
+            let owner = uuid::Uuid::new_v4();
+            let mut got = Vec::new();
+            for _ in 0..10 {
+                let jobs = db
+                    .radar_claim_jobs(owner, &classes, 1_000, Duration::from_secs(60), 3)
+                    .await
+                    .unwrap();
+                got.extend(jobs.into_iter().map(|j| j.job_id));
+            }
+            got
+        }));
+    }
+    let mut all = Vec::new();
+    for h in handles {
+        all.extend(h.await.unwrap());
+    }
+    let unique: std::collections::HashSet<_> = all.iter().collect();
+    assert_eq!(unique.len(), all.len(), "a job was leased twice");
+    assert_eq!(all.len(), 40, "every job was claimed exactly once");
+}
