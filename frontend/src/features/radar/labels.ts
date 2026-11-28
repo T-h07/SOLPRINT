@@ -138,7 +138,6 @@ const NAMES: Record<string, string> = {
   EXPLORATION: 'Exploration',
   ESTABLISHED: 'Established',
   EMERGING: 'Emerging',
-  FIXTURE: 'Fixture',
   WALLET_HISTORY: 'Wallet history',
   MONITORING: 'Monitoring',
   DATA_ENGINE: 'Data engine',
