@@ -1256,15 +1256,11 @@ impl Database {
             return Ok(PersistOutcome::Conflict);
         }
         if unchanged {
-            // Same evidence, same decoder: only finality may advance.
-            let merged = merge_finality(cur_finality.as_deref(), &w.finality);
-            sqlx::query("UPDATE solprint.de_transactions SET finality = $3, updated_at = now(), next_finality_check_at = CASE WHEN $3 IN ('FINALIZED','ORPHANED') THEN NULL ELSE next_finality_check_at END WHERE network = $1 AND signature = $2")
-                .bind(NETWORK)
-                .bind(&w.signature)
-                .bind(merged)
-                .execute(&mut *tx)
-                .await
-                .map_err(|x| e(&x))?;
+            // Same evidence, same decoder: nothing to write here. A finality
+            // advance carried by this fetch is applied by the caller through
+            // `de_apply_finality`, which also moves the swaps' finality and
+            // emits the finality event; updating only this row would leave
+            // swaps and consumers behind with no further check scheduled.
             if let Some((job_id, _)) = job {
                 complete(&mut tx, job_id, cur_rev).await?;
             }

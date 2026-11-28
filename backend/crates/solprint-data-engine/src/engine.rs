@@ -17,7 +17,7 @@ use solprint_gateway::stream::{
 };
 use solprint_storage::data_engine::{
     BackfillPage, DeBackfill, DeCounts, DeJob, IssueWrite, NewObservation, OutboxWrite,
-    PersistOutcome,
+    PersistOutcome, StoredTxState, TransactionWrite, merge_finality,
 };
 use solprint_storage::{Database, StorageError};
 use tokio::task::JoinSet;
@@ -657,6 +657,8 @@ impl<S: ChainSource> Engine<S> {
                 }
                 PersistOutcome::Unchanged { revision } => {
                     bump(&self.metrics.unchanged);
+                    self.advance_unchanged_finality(&job.signature, &state, &w)
+                        .await?;
                     return Ok(JobOutcome::Unchanged { revision });
                 }
                 PersistOutcome::LeaseLost => {
@@ -805,6 +807,39 @@ impl<S: ChainSource> Engine<S> {
             }
         }
         Ok(due.len())
+    }
+
+    /// A refetch with unchanged evidence can still carry a higher finality
+    /// (for example a finalized refetch of a confirmed transaction). Apply it
+    /// exactly like a reconciler transition: transaction and swaps together,
+    /// with the finality event, guarded by the finality that was read.
+    async fn advance_unchanged_finality(
+        &self,
+        signature: &str,
+        state: &StoredTxState,
+        w: &TransactionWrite,
+    ) -> Result<(), EngineError> {
+        let Some(current) = state.finality.as_deref() else {
+            return Ok(());
+        };
+        let merged = merge_finality(Some(current), &w.finality);
+        if merged == current {
+            return Ok(());
+        }
+        let next = if matches!(merged, "FINALIZED" | "ORPHANED") {
+            None
+        } else {
+            w.next_finality_check_at
+        };
+        let outbox = self.finality_events(signature, current, merged);
+        if self
+            .db
+            .de_apply_finality(signature, current, merged, next.as_ref(), &outbox, None)
+            .await?
+        {
+            bump(&self.metrics.finality_transitions);
+        }
+        Ok(())
     }
 
     fn finality_events(&self, signature: &str, from: &str, to: &str) -> Vec<OutboxWrite> {
