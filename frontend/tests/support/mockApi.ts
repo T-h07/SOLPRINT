@@ -29,6 +29,19 @@ import {
   dataTransactions,
   type DataVariant,
 } from './dataFixtures.ts';
+import {
+  radarCycles,
+  radarEvidence,
+  radarHistory,
+  radarJobs,
+  radarMarkets,
+  radarMonitoring,
+  radarSources,
+  radarStatus,
+  radarWallet,
+  radarWallets,
+  type RadarVariant,
+} from './radarFixtures.ts';
 
 export const FIXED_NOW = Date.parse('2026-11-26T12:00:00.000Z');
 
@@ -111,11 +124,19 @@ export type Scenario =
   | 'loading'
   | 'gateway-idle'
   | 'gateway-pressure'
-  | 'data-empty';
+  | 'data-empty'
+  | 'radar-empty'
+  | 'radar-paused';
 
 /** Scenarios that only change one workspace answer like `healthy` elsewhere. */
 const base = (s: Scenario): 'healthy' | 'database-down' | 'offline' | 'loading' =>
-  s === 'gateway-idle' || s === 'gateway-pressure' || s === 'data-empty' ? 'healthy' : s;
+  s === 'gateway-idle' ||
+  s === 'gateway-pressure' ||
+  s === 'data-empty' ||
+  s === 'radar-empty' ||
+  s === 'radar-paused'
+    ? 'healthy'
+    : s;
 
 const json = (route: Route, status: number, body: unknown) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
@@ -125,6 +146,7 @@ export async function mockBackend(page: Page, full: Scenario): Promise<void> {
   await page.clock.setFixedTime(FIXED_NOW);
   await mockGateway(page, full);
   await mockData(page, full);
+  await mockRadar(page, full);
   const scenario = base(full);
 
   await page.route('**/health/ready', (route) => {
@@ -239,6 +261,56 @@ async function mockData(page: Page, scenario: Scenario): Promise<void> {
         return json(route, 200, dataDecoders());
       default:
         return json(route, 404, {});
+    }
+  });
+}
+
+async function mockRadar(page: Page, scenario: Scenario): Promise<void> {
+  const variant: RadarVariant =
+    scenario === 'radar-empty' ? 'empty' : scenario === 'radar-paused' ? 'paused' : 'active';
+  const down = scenario === 'database-down';
+  await page.route('**/api/v1/radar/**', (route) => {
+    if (scenario === 'offline') {
+      return route.fulfill({ status: 502, contentType: 'text/html', body: 'Bad Gateway' });
+    }
+    if (scenario === 'loading') return new Promise<void>(() => undefined);
+    const url = new URL(route.request().url());
+    const parts = url.pathname.split('/').slice(4);
+    const unavailable = () =>
+      json(route, 503, {
+        error: { code: 'SERVICE_UNAVAILABLE', message: 'Service unavailable.', request_id: null },
+      });
+    const notFound = () =>
+      json(route, 404, {
+        error: { code: 'NOT_FOUND', message: 'Resource not found.', request_id: null },
+      });
+    if (down) return unavailable();
+    switch (parts[0]) {
+      case 'status':
+        return json(route, 200, radarStatus(variant));
+      case 'wallets': {
+        const address = parts[1];
+        if (!address) {
+          return json(route, 200, radarWallets(variant, url.searchParams.get('lifecycle')));
+        }
+        const detail = radarWallet(address);
+        if (!detail) return notFound();
+        if (parts[2] === 'evidence') return json(route, 200, radarEvidence(address));
+        if (parts[2] === 'history') return json(route, 200, radarHistory(address));
+        return parts[2] ? notFound() : json(route, 200, detail);
+      }
+      case 'markets':
+        return json(route, 200, radarMarkets(variant));
+      case 'sources':
+        return json(route, 200, radarSources(variant));
+      case 'jobs':
+        return json(route, 200, radarJobs(variant));
+      case 'monitoring':
+        return json(route, 200, radarMonitoring(variant));
+      case 'cycles':
+        return json(route, 200, radarCycles(variant));
+      default:
+        return notFound();
     }
   });
 }

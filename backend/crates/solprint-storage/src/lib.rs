@@ -22,6 +22,7 @@ use tokio::time::{Instant, sleep, timeout};
 
 pub mod data_engine;
 pub mod gateway;
+pub mod radar;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 

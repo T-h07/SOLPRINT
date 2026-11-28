@@ -1752,6 +1752,7 @@ dependencies = [
  "solprint-data-engine",
  "solprint-gateway",
  "solprint-observability",
+ "solprint-radar",
  "solprint-storage",
  "time",
  "tokio",
@@ -1776,6 +1777,7 @@ dependencies = [
  "solprint-data-engine",
  "solprint-gateway",
  "solprint-observability",
+ "solprint-radar",
  "solprint-storage",
  "tokio",
  "tokio-util",
@@ -1863,6 +1865,28 @@ dependencies = [
  "time",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "solprint-radar"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "sha2",
+ "solprint-config",
+ "solprint-core",
+ "solprint-data-engine",
+ "solprint-gateway",
+ "solprint-storage",
+ "thiserror",
+ "time",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -65,6 +65,26 @@ See [docs/architecture/DATA_ENGINE.md](docs/architecture/DATA_ENGINE.md).
 - Never assume completeness. Gaps, partial backfills and unknown continuity stay visible.
 - Event consumers are idempotent: deduplicate by event id and aggregate revision.
 
+## Wallet discovery (RADAR)
+
+See [docs/architecture/RADAR.md](docs/architecture/RADAR.md).
+
+- Wallet discovery is evidence-based: a candidate needs a finalized, verified swap that
+  the wallet signed. Discovery listings select markets, never wallets.
+- Every candidate keeps its discovery provenance (source, market, pool, signature, time).
+- Preliminary priority orders investigation. It is not wallet intelligence, a skill score
+  or a trading signal; qualification stays separate from priority.
+- Unknown cost basis is never zero; unmatched and unvalued outcomes stay unknown.
+- Historical completeness is never assumed: coverage is recorded, and dormancy needs
+  coverage of the inactivity window.
+- All external operations pass through GATEWAY; all blockchain interpretation passes
+  through the DATA ENGINE (history is requested as bounded DATA ENGINE backfills).
+- Historical observations keep their knowledge timestamps (observed, processed, source).
+- Candidate records honour corrections and retractions (`SwapRetracted` invalidates
+  evidence, and the wallet is re-evaluated).
+- Resource limits, budget admission and local verification stay mandatory; autonomous
+  discovery stays off unless the owner enables it.
+
 ## Financial precision
 
 - No floating point for amounts or prices. Lamports/raw token amounts are `u64` with

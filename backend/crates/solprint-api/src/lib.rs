@@ -24,15 +24,32 @@
 //! | GET    | `/api/v1/data/targets`      | ingestion targets and coverage         |
 //! | GET    | `/api/v1/data/backfills`    | bounded backfills                      |
 //! | GET    | `/api/v1/data/events`       | recent domain events (outbox)          |
+//! | GET    | `/api/v1/radar/status`      | RADAR state, budget, totals, settings  |
+//! | GET    | `/api/v1/radar/metrics`     | RADAR process counters                 |
+//! | GET    | `/api/v1/radar/budget`      | RADAR budget share and admission       |
+//! | GET    | `/api/v1/radar/wallets`     | wallet registry (filters, keyset)      |
+//! | GET    | `/api/v1/radar/wallets/{address}` | wallet detail and latest metrics |
+//! | GET    | `/api/v1/radar/wallets/{address}/evidence`  | discovery evidence     |
+//! | GET    | `/api/v1/radar/wallets/{address}/history`   | lifecycle transitions  |
+//! | GET    | `/api/v1/radar/wallets/{address}/snapshots` | scoring snapshots      |
+//! | GET    | `/api/v1/radar/markets`     | market universe and pools              |
+//! | GET    | `/api/v1/radar/sources`     | per-source runs and wallet yield       |
+//! | GET    | `/api/v1/radar/jobs`        | RADAR work queue                       |
+//! | GET    | `/api/v1/radar/monitoring`  | monitoring assignments                 |
+//! | GET    | `/api/v1/radar/cycles`      | discovery cycles                       |
+//! | GET    | `/api/v1/radar/events`      | RADAR outbox events                    |
 //!
 //! None of these endpoints contacts an external provider: GATEWAY endpoints
 //! read only in-memory state and stored aggregates; DATA ENGINE endpoints
-//! read PostgreSQL and in-process counters and never enqueue work.
+//! read PostgreSQL and in-process counters and never enqueue work; RADAR
+//! endpoints read PostgreSQL, the GATEWAY budget snapshot and in-process
+//! counters and never schedule work.
 
 pub mod contracts;
 mod data_routes;
 mod gateway_routes;
 mod middleware;
+mod radar_routes;
 mod state;
 
 use std::future::IntoFuture;
@@ -84,6 +101,29 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/data/targets", get(data_routes::targets))
         .route("/api/v1/data/backfills", get(data_routes::backfills))
         .route("/api/v1/data/events", get(data_routes::events))
+        .route("/api/v1/radar/status", get(radar_routes::status))
+        .route("/api/v1/radar/metrics", get(radar_routes::metrics))
+        .route("/api/v1/radar/budget", get(radar_routes::budget))
+        .route("/api/v1/radar/wallets", get(radar_routes::wallets))
+        .route("/api/v1/radar/wallets/{address}", get(radar_routes::wallet))
+        .route(
+            "/api/v1/radar/wallets/{address}/evidence",
+            get(radar_routes::wallet_evidence),
+        )
+        .route(
+            "/api/v1/radar/wallets/{address}/history",
+            get(radar_routes::wallet_history),
+        )
+        .route(
+            "/api/v1/radar/wallets/{address}/snapshots",
+            get(radar_routes::wallet_snapshots),
+        )
+        .route("/api/v1/radar/markets", get(radar_routes::markets))
+        .route("/api/v1/radar/sources", get(radar_routes::sources))
+        .route("/api/v1/radar/jobs", get(radar_routes::jobs))
+        .route("/api/v1/radar/monitoring", get(radar_routes::monitoring))
+        .route("/api/v1/radar/cycles", get(radar_routes::cycles))
+        .route("/api/v1/radar/events", get(radar_routes::events))
         .fallback(middleware::not_found)
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(limits.body_limit_bytes))

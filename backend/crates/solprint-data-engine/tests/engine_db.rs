@@ -1242,3 +1242,55 @@ async fn a_page_limited_backfill_reports_partial_history() {
     assert_eq!(gap.backfill_id, Some(id));
     assert!(gap.resolved_at.is_none());
 }
+
+#[tokio::test]
+#[ignore = "requires SOLPRINT_TEST_DATABASE_URL (disposable PostgreSQL)"]
+async fn unchanged_finalized_refetch_finalizes_transaction_and_swaps() {
+    // Regression: a refetch at finalized commitment that returns the stored
+    // evidence unchanged must still advance finality like a status check
+    // does: the transaction and its swaps become FINALIZED, finalized_at is
+    // set and TransactionFinalized is emitted once.
+    let src = Arc::new(MemorySource::default());
+    let (a, _) = src.add(&fixture("raydium_amm_v4_swap"));
+    let (_tdb, e) = engine(Arc::clone(&src)).await;
+    let db = e.database();
+    observe(&e, &a).await;
+    drain(&e).await;
+    e.outbox_tick().await.unwrap();
+    let before = db.de_transaction(&a).await.unwrap().unwrap();
+    assert_ne!(before.summary.finality, "FINALIZED");
+    assert!(!before.swaps.is_empty());
+
+    // Unknown status: the engine requeues a finalized refetch.
+    src.status(&a, None);
+    wait_until_due(db, 1).await;
+    let c = CancellationToken::new();
+    assert_eq!(e.finality_tick(&c).await.unwrap(), 1);
+    drain(&e).await;
+    assert!(
+        src.fetches
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(s, cm, _)| s == &a && *cm == CommitmentLevel::Finalized),
+        "a finalized refetch ran"
+    );
+
+    let after = db.de_transaction(&a).await.unwrap().unwrap();
+    assert_eq!(after.summary.finality, "FINALIZED");
+    assert!(after.finalized_at.is_some());
+    assert!(after.swaps.iter().all(|s| s.finality == "FINALIZED"));
+    assert!(after.swaps.iter().all(|s| s.finalized_at.is_some()));
+    // Same evidence: no new revision.
+    assert_eq!(after.evidence.len(), before.evidence.len());
+    let finalized = db
+        .de_outbox_pending("diagnostic_log", 100)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|o| o.event_type == "TransactionFinalized")
+        .count();
+    assert_eq!(finalized, 1);
+    // Finalized transactions are not checked again.
+    assert!(db.de_finality_due(100).await.unwrap().is_empty());
+}

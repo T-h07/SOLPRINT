@@ -184,6 +184,79 @@ pub struct TokenInfo {
     pub fdv_usd: Option<Decimal>,
     pub market_cap_usd: Option<Decimal>,
     pub updated_at: Option<UtcTimestamp>,
+    /// Documented Tokens V2 discovery fields (category and recent endpoints).
+    pub discovery: TokenDiscoveryInfo,
+}
+
+/// Tokens V2 fields used for market discovery. Every field is optional:
+/// Jupiter omits what it does not publish, and a missing value is unknown,
+/// never zero. These are provider observations, not quality guarantees.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TokenDiscoveryInfo {
+    /// `organicScoreLabel` (`high` / `medium` / `low`).
+    pub organic_score_label: Option<String>,
+    /// `launchpad` (for example a bonding-curve launchpad name).
+    pub launchpad: Option<String>,
+    /// `firstPool.id`: the address of the token's first pool.
+    pub first_pool: Option<String>,
+    /// `firstPool.createdAt`.
+    pub first_pool_created_at: Option<UtcTimestamp>,
+    /// `createdAt` of the mint.
+    pub created_at: Option<UtcTimestamp>,
+    pub stats_1h: Option<TokenWindowStats>,
+    pub stats_24h: Option<TokenWindowStats>,
+}
+
+/// One `statsNN` window. Units are not stated by Jupiter; volumes are kept as
+/// published decimals and counts as integers.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TokenWindowStats {
+    pub num_buys: Option<u64>,
+    pub num_sells: Option<u64>,
+    pub num_traders: Option<u64>,
+    pub num_organic_buyers: Option<u64>,
+    pub buy_volume: Option<Decimal>,
+    pub sell_volume: Option<Decimal>,
+}
+
+/// Tokens V2 category endpoint (`/tokens/v2/{category}/{interval}`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TokenCategory {
+    TopOrganicScore,
+    TopTraded,
+    TopTrending,
+}
+
+impl TokenCategory {
+    #[must_use]
+    pub const fn path(self) -> &'static str {
+        match self {
+            Self::TopOrganicScore => "toporganicscore",
+            Self::TopTraded => "toptraded",
+            Self::TopTrending => "toptrending",
+        }
+    }
+}
+
+/// Documented intervals: `5m`, `1h`, `6h`, `24h`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TokenInterval {
+    M5,
+    H1,
+    H6,
+    H24,
+}
+
+impl TokenInterval {
+    #[must_use]
+    pub const fn path(self) -> &'static str {
+        match self {
+            Self::M5 => "5m",
+            Self::H1 => "1h",
+            Self::H6 => "6h",
+            Self::H24 => "24h",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

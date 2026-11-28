@@ -112,6 +112,63 @@ Live intake and automatic ingestion are off by default. See
 | `DATA_ENGINE_JOB_RETENTION_DAYS` | `14` | 1–365; `COMPLETED` and `CANCELLED` jobs |
 | `DATA_ENGINE_OUTBOX_RETENTION_DAYS` | `7` | 1–365; events every consumer has delivered |
 
+## RADAR (Phase 03)
+
+RADAR is read-only wallet discovery. It reads GATEWAY's budget and requests transactions
+only as DATA ENGINE backfills. **Provider-backed discovery is off by default**: with
+`RADAR_AUTO_DISCOVERY_ENABLED=false`, RADAR only works on locally stored data and on
+wallets the operator asks it to investigate. Invalid combinations are rejected at
+startup. See [RADAR.md](../architecture/RADAR.md) and
+[RADAR_CAPACITY_MODEL.md](../architecture/RADAR_CAPACITY_MODEL.md).
+
+| Key | Default | Rules |
+|---|---|---|
+| `RADAR_ENABLED` | `true` | local RADAR work: DATA ENGINE event consumption, evaluation, API. `false` = RADAR does not run; stored data stays readable |
+| `RADAR_AUTO_DISCOVERY_ENABLED` | `false` | **opt-in to spend provider credits** on listings, pool checks, sampling and history. Off: no provider work except operator-requested investigations |
+| `RADAR_MARKET_DISCOVERY_INTERVAL_SECS` | `300` | 60–86 400; also sets the resample guard (six intervals) |
+| `RADAR_CANDIDATE_REEVALUATION_INTERVAL_SECS` | `900` | 60–86 400; also the periodic monitoring refresh interval |
+| `RADAR_REGISTRY_MAINTENANCE_INTERVAL_SECS` | `3600` | 60–86 400; dormancy, archival, retention |
+| `RADAR_MAX_MARKET_TARGETS` | `100` | 1–1 000; market universe size |
+| `RADAR_MAX_ACTIVE_MARKET_TARGETS` | `20` | 1–200; must not exceed `RADAR_MAX_MARKET_TARGETS` |
+| `RADAR_MAX_MARKET_SAMPLES_PER_CYCLE` | `5` | 1–50 |
+| `RADAR_MAX_ACTIVE_CANDIDATES` | `500` | 1–10 000 |
+| `RADAR_MAX_INVESTIGATING_CANDIDATES` | `25` | 1–500; must not exceed `RADAR_MAX_ACTIVE_CANDIDATES` |
+| `RADAR_MAX_LIVE_MONITORED_WALLETS` | `10` | 0–100; must not exceed `DATA_ENGINE_MAX_ACTIVE_TARGETS` |
+| `RADAR_MAX_CONCURRENT_SAMPLE_JOBS` | `2` | 1–8 |
+| `RADAR_MAX_CONCURRENT_HISTORY_JOBS` | `2` | 1–8; must not exceed twice `DATA_ENGINE_MAX_CONCURRENT_BACKFILLS` |
+| `RADAR_MAX_PENDING_JOBS` | `1000` | 10–100 000 |
+| `RADAR_INITIAL_SAMPLE_SIGNATURES` | `25` | 1–1 000; must not exceed the expanded sample |
+| `RADAR_EXPANDED_SAMPLE_SIGNATURES` | `100` | 1–1 000; pools that already yielded wallets |
+| `RADAR_INITIAL_HISTORY_DAYS` / `RADAR_INITIAL_HISTORY_MAX_SIGNATURES` | 7 / 50 | stage A; 1–365 days, 1–10 000 signatures |
+| `RADAR_EXPANDED_HISTORY_DAYS` / `RADAR_EXPANDED_HISTORY_MAX_SIGNATURES` | 30 / 200 | stage B; stages must not shrink (A ≤ B ≤ C in days and in signatures) |
+| `RADAR_EXTENDED_HISTORY_DAYS` / `RADAR_EXTENDED_HISTORY_MAX_SIGNATURES` | 90 / 500 | stage C |
+| `RADAR_NORMAL_BUDGET_SHARE_BPS` | `4000` | 0–10 000; share of the *remaining* normal allowance that RADAR's outstanding work may reserve (never the reserve) |
+| `RADAR_SHARE_ESTABLISHED_BPS` | `3500` | bucket shares must sum to 10 000 |
+| `RADAR_SHARE_EMERGING_BPS` | `2500` |  |
+| `RADAR_SHARE_LOCAL_ACTIVITY_BPS` | `2000` |  |
+| `RADAR_SHARE_HISTORICAL_BPS` | `1000` |  |
+| `RADAR_SHARE_EXPLORATION_BPS` | `1000` | at least 500 (starvation floor) |
+| `RADAR_MIN_POOL_LIQUIDITY_USD` | `5000` | established floor (emerging: one fifth); provider-reported |
+| `RADAR_MIN_VOLUME_24H_USD` | `10000` | established only |
+| `RADAR_MIN_TXNS_1H` | `20` | 1-hour window (emerging: half) |
+| `RADAR_MAX_MARKET_OBSERVATION_AGE_SECS` | `300` | 30–86 400; older observations are stale and not screened as fresh |
+| `RADAR_MIN_QUALIFYING_SWAPS` | `10` | verified swaps in 30 d; also the stage A → B threshold |
+| `RADAR_MIN_DISTINCT_TRADING_DAYS` | `3` | in 30 d |
+| `RADAR_MIN_MATCHED_OUTCOMES` | `3` | closed FIFO outcomes for a financial qualification |
+| `RADAR_MIN_MATCHED_COVERAGE_BPS` | `6000` | share of disposals matched to known-cost lots |
+| `RADAR_QUALIFICATION_MAX_INACTIVE_DAYS` | `7` |  |
+| `RADAR_ACTIVITY_HALF_LIFE_DAYS` | `7` | recency half-life in the priority score |
+| `RADAR_REDUCE_MONITORING_AFTER_DAYS` | `7` | release from monitoring after this long without a verified trade |
+| `RADAR_DORMANT_AFTER_DAYS` | `14` | requires reduce ≤ dormant < archive; coverage-aware |
+| `RADAR_ARCHIVE_AFTER_DAYS` | `60` |  |
+| `RADAR_MONITORING_MIN_DURATION_SECS` | `3600` | 60–604 800; minimum tenure before rotation |
+| `RADAR_MONITORING_COOLDOWN_SECS` | `3600` | 60–604 800; before a released wallet can return |
+| `RADAR_MARKET_OBSERVATION_RETENTION_DAYS` | `30` | also cycles |
+| `RADAR_SNAPSHOT_RETENTION_DAYS` | `90` | the latest snapshot per wallet is always kept |
+| `RADAR_JOB_RETENTION_DAYS` | `30` | finished jobs without evidence; delivered outbox events |
+
+`DEXSCREENER_DISCOVERY_ENABLED` (GATEWAY) additionally allows the promotional boosts listing as a RADAR source; boosts are never counted as demand.
+
 ## Compose / scripts
 
 | Key | Default | Purpose |

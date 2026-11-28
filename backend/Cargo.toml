@@ -19,6 +19,7 @@ solprint-api = { path = "crates/solprint-api" }
 solprint-observability = { path = "crates/solprint-observability" }
 solprint-gateway = { path = "crates/solprint-gateway" }
 solprint-data-engine = { path = "crates/solprint-data-engine" }
+solprint-radar = { path = "crates/solprint-radar" }
 
 # Runtime / HTTP
 tokio = { version = "1.54.1", default-features = false }

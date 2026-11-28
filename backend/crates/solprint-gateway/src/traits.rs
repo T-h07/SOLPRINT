@@ -14,9 +14,10 @@ use crate::context::{GatewayResponse, RequestContext};
 use crate::error::GatewayError;
 use crate::gateway::Gateway;
 use crate::models::{
-    AccountData, BlockSummary, DexPair, JupiterPrice, LargestTokenAccount, NodeHealth, NodeVersion,
-    QuoteRequest, SignaturePage, SignatureQuery, SignatureStatus, SwapQuote, TokenAccount,
-    TokenAccountFilter, TokenInfo, TransactionRecord,
+    AccountData, BlockSummary, DexBoost, DexPair, DexProfile, JupiterPrice, LargestTokenAccount,
+    NodeHealth, NodeVersion, QuoteRequest, SignaturePage, SignatureQuery, SignatureStatus,
+    SwapQuote, TokenAccount, TokenAccountFilter, TokenCategory, TokenInfo, TokenInterval,
+    TransactionRecord,
 };
 use crate::stream::{StreamHandle, StreamSnapshot, SubscriptionId, SubscriptionSpec};
 
@@ -145,6 +146,36 @@ pub trait MarketDataProvider: Send + Sync {
         ctx: &RequestContext,
         query: &str,
     ) -> impl Future<Output = R<Vec<DexPair>>> + Send;
+}
+
+/// Market discovery listings (Phase 03 RADAR). Every listing is a provider
+/// observation: it names tokens, never wallets, and promotional listings
+/// (DEX Screener boosts) are paid visibility, not organic demand.
+pub trait MarketDiscoveryProvider: Send + Sync {
+    /// Jupiter Tokens V2 `/{category}/{interval}`.
+    fn token_category(
+        &self,
+        ctx: &RequestContext,
+        category: TokenCategory,
+        interval: TokenInterval,
+        limit: u16,
+    ) -> impl Future<Output = R<Vec<TokenInfo>>> + Send;
+    /// Jupiter Tokens V2 `/recent` (first pool recently created).
+    fn recent_tokens(&self, ctx: &RequestContext)
+    -> impl Future<Output = R<Vec<TokenInfo>>> + Send;
+    /// DEX Screener latest token profiles (disabled unless
+    /// `DEXSCREENER_DISCOVERY_ENABLED=true`).
+    fn latest_profiles(
+        &self,
+        ctx: &RequestContext,
+    ) -> impl Future<Output = R<Vec<DexProfile>>> + Send;
+    /// DEX Screener boosts: **paid promotion** (disabled unless
+    /// `DEXSCREENER_DISCOVERY_ENABLED=true`).
+    fn boosts(
+        &self,
+        ctx: &RequestContext,
+        top: bool,
+    ) -> impl Future<Output = R<Vec<DexBoost>>> + Send;
 }
 
 /// Quote only. There is deliberately no method that returns, builds or
@@ -283,6 +314,28 @@ impl MarketDataProvider for Gateway {
     }
     async fn search_pairs(&self, ctx: &RequestContext, query: &str) -> R<Vec<DexPair>> {
         self.dex_search(ctx, query).await
+    }
+}
+
+impl MarketDiscoveryProvider for Gateway {
+    async fn token_category(
+        &self,
+        ctx: &RequestContext,
+        category: TokenCategory,
+        interval: TokenInterval,
+        limit: u16,
+    ) -> R<Vec<TokenInfo>> {
+        self.jupiter_token_category(ctx, category, interval, limit)
+            .await
+    }
+    async fn recent_tokens(&self, ctx: &RequestContext) -> R<Vec<TokenInfo>> {
+        self.jupiter_recent_tokens(ctx).await
+    }
+    async fn latest_profiles(&self, ctx: &RequestContext) -> R<Vec<DexProfile>> {
+        self.dex_latest_profiles(ctx).await
+    }
+    async fn boosts(&self, ctx: &RequestContext, top: bool) -> R<Vec<DexBoost>> {
+        self.dex_boosts(ctx, top).await
     }
 }
 

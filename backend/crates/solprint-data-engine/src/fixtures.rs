@@ -73,6 +73,7 @@ pub struct TxBuilder {
     record_inner: bool,
     record_stack_height: bool,
     slot: u64,
+    block_time: i64,
 }
 
 impl TxBuilder {
@@ -91,6 +92,7 @@ impl TxBuilder {
             record_inner: true,
             record_stack_height: true,
             slot: 300_000_000,
+            block_time: 1_790_000_000,
         }
     }
 
@@ -116,6 +118,14 @@ impl TxBuilder {
     #[must_use]
     pub fn fee(mut self, lamports: u64) -> Self {
         self.fee = lamports;
+        self
+    }
+
+    /// Place the transaction at a slot and block time (unix seconds).
+    #[must_use]
+    pub const fn at(mut self, slot: u64, block_time: i64) -> Self {
+        self.slot = slot;
+        self.block_time = block_time;
         self
     }
 
@@ -373,7 +383,7 @@ impl TxBuilder {
         let doc = json!({
             "_fixture": FIXTURE_MARKER,
             "slot": self.slot,
-            "blockTime": 1_790_000_000,
+            "blockTime": self.block_time,
             "version": if v0 { json!(0) } else { json!("legacy") },
             "transaction": {"signatures": self.signers.iter().enumerate().map(|(n, _)| sig(&format!("{}:{n}", self.label))).collect::<Vec<_>>(), "message": message},
             "meta": meta,

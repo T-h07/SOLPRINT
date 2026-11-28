@@ -109,7 +109,7 @@ async fn system_status_reports_truthful_state() {
     assert_eq!(body["trading"]["execution_capability"], "NONE");
     assert_eq!(body["database"]["status"], "UNAVAILABLE");
     assert!(body["database"]["migrations_applied"].is_null());
-    assert_eq!(body["database"]["migrations_expected"], 3);
+    assert_eq!(body["database"]["migrations_expected"], 4);
     let providers = body["providers"].as_array().unwrap();
     assert_eq!(providers.len(), 4);
     for p in providers {
@@ -225,6 +225,16 @@ async fn no_endpoint_leaks_synthetic_secrets() {
         "/api/v1/data/targets",
         "/api/v1/data/backfills",
         "/api/v1/data/events",
+        "/api/v1/radar/status",
+        "/api/v1/radar/metrics",
+        "/api/v1/radar/budget",
+        "/api/v1/radar/wallets",
+        "/api/v1/radar/markets",
+        "/api/v1/radar/sources",
+        "/api/v1/radar/jobs",
+        "/api/v1/radar/monitoring",
+        "/api/v1/radar/cycles",
+        "/api/v1/radar/events",
         "/does-not-exist",
     ] {
         let res = router(offline_state()).oneshot(get(path)).await.unwrap();
@@ -292,7 +302,7 @@ async fn readiness_tracks_real_database_availability() {
 
     let (_, _, body) = call(state.clone(), get("/api/v1/system/status")).await;
     assert_eq!(body["database"]["status"], "AVAILABLE");
-    assert_eq!(body["database"]["migrations_applied"], 3);
+    assert_eq!(body["database"]["migrations_applied"], 4);
 
     // Outage: readiness must flip to 503 while liveness stays 200.
     tdb.drop_database().await;
@@ -439,4 +449,159 @@ async fn data_endpoints_are_read_only() {
         let (status, _, _) = call(offline_state(), req).await;
         assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED, "{path}");
     }
+}
+
+const RADAR_WALLET: &str = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
+
+#[tokio::test]
+async fn radar_reads_return_503_envelope_when_database_is_down() {
+    for path in [
+        "/api/v1/radar/status",
+        "/api/v1/radar/budget",
+        "/api/v1/radar/wallets",
+        "/api/v1/radar/markets",
+        "/api/v1/radar/sources",
+        "/api/v1/radar/jobs",
+        "/api/v1/radar/monitoring",
+        "/api/v1/radar/cycles",
+        "/api/v1/radar/events",
+    ] {
+        let (status, _, body) = call(offline_state(), get(path)).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{path}");
+        assert_eq!(body["error"]["code"], "SERVICE_UNAVAILABLE", "{path}");
+    }
+    // Process counters need no database; RADAR is not attached here.
+    let (status, _, body) = call(offline_state(), get("/api/v1/radar/metrics")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.is_null());
+}
+
+#[tokio::test]
+async fn radar_queries_are_validated_before_touching_storage() {
+    for path in [
+        "/api/v1/radar/wallets?lifecycle=monitored".to_owned(),
+        "/api/v1/radar/wallets?sort=RANDOM".to_owned(),
+        "/api/v1/radar/wallets?min_priority=-5".to_owned(),
+        "/api/v1/radar/wallets?active_days=0".to_owned(),
+        "/api/v1/radar/wallets?cursor=nope".to_owned(),
+        format!("/api/v1/radar/wallets?cursor=1'%3B|{RADAR_WALLET}"),
+        "/api/v1/radar/wallets/not-an-address".to_owned(),
+        "/api/v1/radar/wallets/short/evidence".to_owned(),
+        "/api/v1/radar/markets?cursor=yesterday|x".to_owned(),
+        "/api/v1/radar/sources?window_hours=0".to_owned(),
+        "/api/v1/radar/sources?window_hours=721".to_owned(),
+        "/api/v1/radar/jobs?subject=xyz".to_owned(),
+        "/api/v1/radar/jobs?limit=abc".to_owned(),
+    ] {
+        let (status, _, body) = call(offline_state(), get(&path)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{path}: {body}");
+    }
+}
+
+#[tokio::test]
+async fn radar_endpoints_are_read_only() {
+    for path in [
+        "/api/v1/radar/status",
+        "/api/v1/radar/wallets",
+        "/api/v1/radar/jobs",
+        "/api/v1/radar/monitoring",
+    ] {
+        for method in [Method::POST, Method::PUT, Method::DELETE] {
+            let req = Request::builder()
+                .method(method.clone())
+                .uri(path)
+                .body(Body::empty())
+                .unwrap();
+            let (status, _, _) = call(offline_state(), req).await;
+            assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED, "{method} {path}");
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires SOLPRINT_TEST_DATABASE_URL (disposable PostgreSQL)"]
+async fn radar_registry_is_served_from_local_state() {
+    let tdb = TestDatabase::create().await;
+    let db = Database::connect(&tdb.config()).await.unwrap();
+    db.migrate().await.unwrap();
+    let cfg = config(tdb.config().url.expose().as_str());
+    let state = AppState::new(
+        &cfg,
+        db.clone(),
+        gateway(&cfg),
+        BuildInfo::current("0.1.0-test"),
+    );
+
+    // Empty registry: truthful zeros, RADAR not running, discovery off,
+    // budget ledger not loaded yet, so provider work is paused.
+    let (status, _, body) = call(state.clone(), get("/api/v1/radar/status")).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["registry"]["wallets"], 0);
+    assert_eq!(body["running"], false);
+    assert_eq!(body["auto_discovery_enabled"], false);
+    assert_eq!(body["budget"]["mode"], "PAUSED");
+    assert_eq!(body["budget"]["reason"], "BUDGET_LEDGER_NOT_LOADED");
+    assert!(body["last_cycle"].is_null());
+    assert_eq!(body["settings"]["priority_policy"], "radar-priority-1");
+    let (_, _, body) = call(state.clone(), get("/api/v1/radar/wallets")).await;
+    assert_eq!(body["items"].as_array().unwrap().len(), 0);
+    assert!(body["next_cursor"].is_null());
+
+    // One operator-registered wallet.
+    assert!(
+        db.radar_register_operator_wallet(uuid::Uuid::new_v4(), RADAR_WALLET)
+            .await
+            .unwrap()
+    );
+    let (_, _, body) = call(state.clone(), get("/api/v1/radar/wallets?limit=1")).await;
+    let items = body["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["address"], RADAR_WALLET);
+    assert_eq!(items[0]["lifecycle"], "DISCOVERED");
+    assert!(items[0]["priority_score"].is_null());
+    let cursor = body["next_cursor"].as_str().unwrap().to_owned();
+    let (status, _, body) = call(
+        state.clone(),
+        get(&format!("/api/v1/radar/wallets?limit=1&cursor={cursor}")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["items"].as_array().unwrap().len(), 0);
+
+    let (status, _, body) = call(
+        state.clone(),
+        get(&format!("/api/v1/radar/wallets/{RADAR_WALLET}")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["wallet"]["first_discovery_source"], "OPERATOR");
+    assert!(body["metrics"].is_null());
+    for sub in ["evidence", "history", "snapshots"] {
+        let (status, _, body) = call(
+            state.clone(),
+            get(&format!("/api/v1/radar/wallets/{RADAR_WALLET}/{sub}")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{sub}: {body}");
+    }
+    let other = "So11111111111111111111111111111111111111112";
+    let (status, _, _) = call(
+        state.clone(),
+        get(&format!("/api/v1/radar/wallets/{other}")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    for path in [
+        "/api/v1/radar/markets",
+        "/api/v1/radar/sources?window_hours=48",
+        "/api/v1/radar/jobs",
+        "/api/v1/radar/monitoring?include_ended=true",
+        "/api/v1/radar/cycles",
+        "/api/v1/radar/events",
+        "/api/v1/radar/budget",
+    ] {
+        let (status, _, body) = call(state.clone(), get(path)).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {body}");
+    }
+    db.close().await;
 }

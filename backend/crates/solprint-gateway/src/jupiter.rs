@@ -22,17 +22,29 @@ use crate::engine::{Call, Fetched};
 use crate::error::GatewayError;
 use crate::gateway::Gateway;
 use crate::http_json::{self, Accept};
-use crate::models::{JupiterPrice, QuoteRequest, RouteLeg, SwapQuote, TokenInfo};
+use crate::models::{
+    JupiterPrice, QuoteRequest, RouteLeg, SwapQuote, TokenCategory, TokenDiscoveryInfo, TokenInfo,
+    TokenInterval, TokenWindowStats,
+};
 use crate::numbers::decimal_from_raw;
 use crate::operations as op;
 
 pub const PRICE_IDS_MAX: usize = 50;
 pub const TOKENS_SEARCH_MAX: usize = 100;
+/// Documented maximum `limit` of the category endpoint.
+pub const TOKENS_CATEGORY_MAX: u16 = 100;
 const P: ProviderId = ProviderId::Jupiter;
 
 const TTL_PRICE: CacheTtl = CacheTtl::new(
     Duration::from_secs(5),
     Duration::from_secs(60),
+    Duration::ZERO,
+);
+/// Discovery listings change quickly; a short TTL coalesces repeated cycles
+/// without presenting old lists as fresh.
+const TTL_DISCOVERY: CacheTtl = CacheTtl::new(
+    Duration::from_secs(60),
+    Duration::from_secs(300),
     Duration::ZERO,
 );
 const TTL_TOKENS: CacheTtl = CacheTtl::new(
@@ -94,6 +106,60 @@ struct RawToken {
     mcap: Option<Box<RawValue>>,
     #[serde(rename = "updatedAt")]
     updated_at: Option<String>,
+    #[serde(rename = "organicScoreLabel")]
+    organic_score_label: Option<String>,
+    launchpad: Option<String>,
+    #[serde(rename = "firstPool")]
+    first_pool: Option<RawFirstPool>,
+    #[serde(rename = "createdAt")]
+    created_at: Option<String>,
+    #[serde(rename = "stats1h")]
+    stats_1h: Option<RawStats>,
+    #[serde(rename = "stats24h")]
+    stats_24h: Option<RawStats>,
+}
+
+#[derive(Deserialize)]
+struct RawFirstPool {
+    id: Option<String>,
+    #[serde(rename = "createdAt")]
+    created_at: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RawStats {
+    #[serde(rename = "numBuys")]
+    num_buys: Option<Box<RawValue>>,
+    #[serde(rename = "numSells")]
+    num_sells: Option<Box<RawValue>>,
+    #[serde(rename = "numTraders")]
+    num_traders: Option<Box<RawValue>>,
+    #[serde(rename = "numOrganicBuyers")]
+    num_organic_buyers: Option<Box<RawValue>>,
+    #[serde(rename = "buyVolume")]
+    buy_volume: Option<Box<RawValue>>,
+    #[serde(rename = "sellVolume")]
+    sell_volume: Option<Box<RawValue>>,
+}
+
+/// A count published as a JSON number: only exact non-negative integers.
+fn count(v: Option<&RawValue>) -> Option<u64> {
+    let d = dec(v)?;
+    if d.is_sign_negative() || d.fract() != Decimal::ZERO {
+        return None;
+    }
+    u64::try_from(d).ok()
+}
+
+fn stats(s: Option<RawStats>) -> Option<TokenWindowStats> {
+    s.map(|s| TokenWindowStats {
+        num_buys: count(s.num_buys.as_deref()),
+        num_sells: count(s.num_sells.as_deref()),
+        num_traders: count(s.num_traders.as_deref()),
+        num_organic_buyers: count(s.num_organic_buyers.as_deref()),
+        buy_volume: dec(s.buy_volume.as_deref()),
+        sell_volume: dec(s.sell_volume.as_deref()),
+    })
 }
 
 fn bounded(s: Option<String>, n: usize) -> Option<String> {
@@ -125,6 +191,16 @@ pub(crate) fn parse_prices(body: &[u8]) -> Result<Vec<JupiterPrice>, GatewayErro
     Ok(out)
 }
 
+fn parse_token_listing(status: u16, body: &[u8]) -> Result<Vec<TokenInfo>, GatewayError> {
+    if status != 200 {
+        return Err(GatewayError::Http {
+            provider: P,
+            status,
+        });
+    }
+    parse_tokens(body)
+}
+
 pub(crate) fn parse_tokens(body: &[u8]) -> Result<Vec<TokenInfo>, GatewayError> {
     let items: Vec<RawToken> = http_json::decode_json(P, body, "tokens response is not an array")?;
     Ok(items
@@ -153,6 +229,22 @@ pub(crate) fn parse_tokens(body: &[u8]) -> Result<Vec<TokenInfo>, GatewayError> 
                 fdv_usd: dec(t.fdv.as_deref()),
                 market_cap_usd: dec(t.mcap.as_deref()),
                 updated_at: parse_ts(t.updated_at.as_deref()),
+                discovery: TokenDiscoveryInfo {
+                    organic_score_label: bounded(t.organic_score_label, 16),
+                    launchpad: bounded(t.launchpad, 64),
+                    first_pool: t
+                        .first_pool
+                        .as_ref()
+                        .and_then(|p| p.id.as_deref())
+                        .filter(|id| solprint_core::WalletAddress::parse(id).is_ok())
+                        .map(str::to_owned),
+                    first_pool_created_at: parse_ts(
+                        t.first_pool.as_ref().and_then(|p| p.created_at.as_deref()),
+                    ),
+                    created_at: parse_ts(t.created_at.as_deref()),
+                    stats_1h: stats(t.stats_1h),
+                    stats_24h: stats(t.stats_24h),
+                },
             })
         })
         .collect())
@@ -446,6 +538,52 @@ impl Gateway {
         Ok(last.map(|_| all))
     }
 
+    /// Tokens V2 category listing (`/tokens/v2/{category}/{interval}`,
+    /// `limit` 1..=100). Jupiter filters generic tokens such as SOL and USDC
+    /// out of these lists. Cached briefly, like other discovery listings.
+    pub async fn jupiter_token_category(
+        &self,
+        ctx: &RequestContext,
+        category: TokenCategory,
+        interval: TokenInterval,
+        limit: u16,
+    ) -> Result<GatewayResponse<Vec<TokenInfo>>, GatewayError> {
+        if limit == 0 || limit > TOKENS_CATEGORY_MAX {
+            return Err(GatewayError::InvalidRequest("limit must be 1..=100"));
+        }
+        let path = format!("tokens/v2/{}/{}", category.path(), interval.path());
+        let mut url = self.jupiter_url(&path)?;
+        url.query_pairs_mut()
+            .append_pair("limit", &limit.to_string());
+        let key = format!("{}:{}:{limit}", category.path(), interval.path());
+        self.jupiter_get(
+            ctx,
+            op::JUP_TOKENS_CATEGORY,
+            url,
+            Some(key),
+            TTL_DISCOVERY,
+            parse_token_listing,
+        )
+        .await
+    }
+
+    /// Tokens V2 `/recent`: mints that recently had their first pool created.
+    pub async fn jupiter_recent_tokens(
+        &self,
+        ctx: &RequestContext,
+    ) -> Result<GatewayResponse<Vec<TokenInfo>>, GatewayError> {
+        let url = self.jupiter_url("tokens/v2/recent")?;
+        self.jupiter_get(
+            ctx,
+            op::JUP_TOKENS_RECENT,
+            url,
+            Some("recent".into()),
+            TTL_DISCOVERY,
+            parse_token_listing,
+        )
+        .await
+    }
+
     /// A swap quote (information only, never executable). Not cached.
     pub async fn jupiter_quote(
         &self,
@@ -589,5 +727,39 @@ mod tests {
         assert_eq!(t.len(), 1);
         assert_eq!(t[0].organic_score.unwrap().to_string(), "98.5");
         assert!(t[0].updated_at.is_some());
+        assert_eq!(t[0].discovery, TokenDiscoveryInfo::default());
+    }
+
+    #[test]
+    fn discovery_fields_are_parsed_and_unknowns_stay_unknown() {
+        let body = format!(
+            r#"[{{"id":"{SOL}","organicScoreLabel":"medium","launchpad":"pump.fun","createdAt":"2026-11-27T10:00:00Z",
+                 "firstPool":{{"id":"{USDC}","createdAt":"2026-11-27T10:01:00Z"}},
+                 "stats1h":{{"numBuys":12,"numSells":3.5,"numTraders":-1,"buyVolume":1234.5}},
+                 "stats24h":null}},
+               {{"id":"{USDC}","firstPool":{{"id":"not-an-address"}}}}]"#
+        );
+        let t = parse_tokens(body.as_bytes()).unwrap();
+        let d = &t[0].discovery;
+        assert_eq!(d.organic_score_label.as_deref(), Some("medium"));
+        assert_eq!(d.first_pool.as_deref(), Some(USDC));
+        assert!(d.first_pool_created_at.is_some() && d.created_at.is_some());
+        let h1 = d.stats_1h.as_ref().unwrap();
+        assert_eq!(h1.num_buys, Some(12));
+        assert_eq!(h1.num_sells, None, "a fractional count is not a count");
+        assert_eq!(h1.num_traders, None, "a negative count is not a count");
+        assert_eq!(h1.buy_volume.unwrap().to_string(), "1234.5");
+        assert_eq!(h1.sell_volume, None, "missing is unknown, not zero");
+        assert!(d.stats_24h.is_none());
+        assert!(
+            t[1].discovery.first_pool.is_none(),
+            "invalid pool ids are dropped"
+        );
+    }
+
+    #[test]
+    fn listings_reject_http_errors() {
+        assert!(parse_token_listing(500, b"[]").is_err());
+        assert!(parse_token_listing(200, b"[]").unwrap().is_empty());
     }
 }

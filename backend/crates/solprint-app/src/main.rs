@@ -11,16 +11,20 @@
 //!    `GATEWAY_STREAMS_ENABLED=true`).
 //! 6. Start the DATA ENGINE when `DATA_ENGINE_ENABLED=true` (queue workers,
 //!    finality, backfills, outbox; live intake only with auto-ingest).
-//! 7. Bind the HTTP listener and serve.
-//! 8. On SIGINT / SIGTERM (Linux) or Ctrl+C / Ctrl+Break / close (Windows):
-//!    stop accepting, drain in-flight requests, stop the DATA ENGINE, stop GATEWAY (final usage
+//! 7. Start RADAR when `RADAR_ENABLED=true` (local event consumption and
+//!    scoring; provider-backed discovery only with
+//!    `RADAR_AUTO_DISCOVERY_ENABLED=true` or an operator-requested cycle).
+//! 8. Bind the HTTP listener and serve.
+//! 9. On SIGINT / SIGTERM (Linux) or Ctrl+C / Ctrl+Break / close (Windows):
+//!    stop accepting, drain in-flight requests, stop RADAR, stop the DATA ENGINE, stop GATEWAY (final usage
 //!    flush), close the pool, exit 0.
 //!
-//! Any failure in 1–7 exits non-zero before the listener exists, so the
+//! Any failure in 1–8 exits non-zero before the listener exists, so the
 //! process can never look healthy after a failed initialisation.
 
 mod data_engine_cli;
 mod diagnostics;
+mod radar_cli;
 
 use std::net::SocketAddr;
 use std::process::ExitCode;
@@ -33,6 +37,7 @@ use solprint_config::Config;
 use solprint_data_engine::engine::Engine;
 use solprint_data_engine::source::GatewaySource;
 use solprint_gateway::{Gateway, GatewaySettings};
+use solprint_radar::{DataEngineLimits, GatewayFeed, Radar};
 use solprint_storage::Database;
 use tokio::net::TcpListener;
 use tokio::time::Instant;
@@ -60,6 +65,11 @@ fn main() -> ExitCode {
     if std::env::args().nth(1).as_deref() == Some("data-engine") {
         let args: Vec<String> = std::env::args().skip(2).collect();
         return data_engine_cli::run(&args);
+    }
+    // `solprint radar <command>`: RADAR operator controls (local state only).
+    if std::env::args().nth(1).as_deref() == Some("radar") {
+        let args: Vec<String> = std::env::args().skip(2).collect();
+        return radar_cli::run(&args);
     }
 
     // Configuration errors are reported before logging exists, on stderr,
@@ -146,6 +156,10 @@ async fn run(config: Config) -> anyhow::Result<()> {
             Arc::new(GatewaySource::new(gateway.clone())),
             config.data_engine.clone(),
         ));
+        if config.radar.enabled {
+            // Outbox events are retained until RADAR has consumed them.
+            engine.register_consumer(solprint_storage::radar::RADAR_CONSUMER);
+        }
         let handle = solprint_data_engine::engine::start(
             &engine,
             gateway.streams().cloned(),
@@ -160,6 +174,29 @@ async fn run(config: Config) -> anyhow::Result<()> {
         (engine, handle)
     });
 
+    // RADAR: learns about wallets only from DATA ENGINE swaps; provider
+    // access (discovery listings, pool validation) only through GATEWAY.
+    let radar_shutdown = CancellationToken::new();
+    let radar = Arc::new(Radar::new(
+        database.clone(),
+        Arc::new(GatewayFeed::new(
+            gateway.clone(),
+            config.gateway.dexscreener.discovery_enabled,
+        )),
+        config.radar.clone(),
+        // With the DATA ENGINE disabled, RADAR defers provider work
+        // (`DATA_ENGINE_BACKFILL_DISABLED`) and stays local.
+        DataEngineLimits::of(&config.data_engine),
+    ));
+    let radar_handle = solprint_radar::start(&radar, &radar_shutdown);
+    if radar_handle.is_some() {
+        tracing::info!(
+            auto_discovery = config.radar.auto_discovery_enabled,
+            data_engine = data_engine.is_some(),
+            "RADAR started"
+        );
+    }
+
     let addr = SocketAddr::new(config.app.host, config.app.port);
     let listener = TcpListener::bind(addr)
         .await
@@ -172,6 +209,9 @@ async fn run(config: Config) -> anyhow::Result<()> {
     );
     if let Some((engine, _)) = &data_engine {
         state.attach_data_engine(Arc::clone(engine));
+    }
+    if config.radar.enabled {
+        state.attach_radar(Arc::clone(&radar) as Arc<dyn solprint_radar::RadarInfo>);
     }
 
     let shutdown = CancellationToken::new();
@@ -200,6 +240,17 @@ async fn run(config: Config) -> anyhow::Result<()> {
             // The server should only stop after cancellation.
             joined.context("server task panicked")?.context("server error")?;
             anyhow::bail!("HTTP server stopped unexpectedly");
+        }
+    }
+
+    // Stop RADAR first: leased jobs go back to the queue.
+    if let Some(handle) = radar_handle {
+        radar_shutdown.cancel();
+        if tokio::time::timeout(SHUTDOWN_GRACE, handle.shutdown(&radar))
+            .await
+            .is_err()
+        {
+            tracing::warn!("RADAR shutdown timed out; leases expire and are recovered");
         }
     }
 

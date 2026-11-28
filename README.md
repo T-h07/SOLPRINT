@@ -8,17 +8,27 @@ and automated trading strategies.
 
 ## Development status
 
-**Phase 02 — DATA ENGINE** (on `feature/02-data-engine`, awaiting owner review).
-Phase 00 (foundation) and Phase 01 (GATEWAY, the single read-only access layer to
-Helius, Jupiter, DEX Screener and the public Solana RPC, with budgets, rate limits and
-caching) are complete and merged into `develop`. Phase 02 adds the DATA ENGINE. It
+**Phase 03 — RADAR** (complete, merged into `develop`).
+Phases 00 (foundation), 01 (GATEWAY, the single read-only access layer to Helius,
+Jupiter, DEX Screener and the public Solana RPC, with budgets, rate limits and caching)
+and 02 (DATA ENGINE) are complete and merged into `develop`.
+
+Phase 03 adds RADAR, a read-only wallet discovery and candidate registry. It builds a
+market universe from public listings, samples supported pools through the DATA ENGINE,
+registers wallets only from finalized, verified, signer-attributed swaps, investigates
+history in bounded stages, and orders candidates by a documented preliminary priority.
+All provider work is under GATEWAY budget admission. Autonomous discovery is **off by
+default**. Priority is an investigation order, not a judgement of skill or a signal. The
+read-only `/radar` workspace shows the registry, sources, budget and monitoring.
+
+The DATA ENGINE
 fetches transactions through GATEWAY, stores the raw evidence, reconstructs them, and
 decodes swaps for Jupiter, Pump.fun, PumpSwap, Raydium (AMM v4, CPMM, CLMM) and Orca
 Whirlpool. Each swap carries exact amounts, evidence-based wallet attribution, finality
 tracking and data-quality issues. The engine also runs bounded history backfills and a
 transactional event outbox, and serves a read-only Data workspace.
 
-* It does **not** rank wallets, score tokens, generate signals or trade. Nothing is
+* SOLPRINT does **not** score tokens, generate signals or trade. Nothing is
   ingested automatically by default. Live intake and backfills are explicit, bounded
   and budgeted.
 * Decoders are verified against synthetic fixtures built from published layouts, not
@@ -30,9 +40,10 @@ transactional event outbox, and serves a read-only Data workspace.
 
 Roadmap: [docs/phases/ROADMAP.md](docs/phases/ROADMAP.md) · Phase details:
 [PHASE_00.md](docs/phases/PHASE_00.md), [PHASE_01.md](docs/phases/PHASE_01.md),
-[PHASE_02.md](docs/phases/PHASE_02.md) · GATEWAY:
+[PHASE_02.md](docs/phases/PHASE_02.md), [PHASE_03.md](docs/phases/PHASE_03.md) · GATEWAY:
 [docs/architecture/GATEWAY.md](docs/architecture/GATEWAY.md) · DATA ENGINE:
-[docs/architecture/DATA_ENGINE.md](docs/architecture/DATA_ENGINE.md).
+[docs/architecture/DATA_ENGINE.md](docs/architecture/DATA_ENGINE.md) · RADAR:
+[docs/architecture/RADAR.md](docs/architecture/RADAR.md).
 
 ## Technology
 
@@ -46,12 +57,13 @@ Roadmap: [docs/phases/ROADMAP.md](docs/phases/ROADMAP.md) · Phase details:
 
 ## Architecture
 
-A modular monolith: eight backend crates (`core`, `config`, `observability`, `storage`,
-`gateway`, `data-engine`, `api`, `app`) behind a same-origin reverse proxy, with API types generated from Rust into
+A modular monolith: nine backend crates (`core`, `config`, `observability`, `storage`,
+`gateway`, `data-engine`, `radar`, `api`, `app`) behind a same-origin reverse proxy, with API types generated from Rust into
 TypeScript. See [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md).
 
 ```
 browser ─▶ frontend (nginx / Vite) ─▶ backend (Axum) ─▶ PostgreSQL
+                                          ├─ RADAR ─▶ DATA ENGINE
                                           ├─ DATA ENGINE ─▶ (via GATEWAY)
                                           └─ GATEWAY ─▶ Helius · Jupiter · DEX Screener · Solana RPC
 ```
@@ -71,6 +83,7 @@ by `rust-toolchain.toml`) and Node.js 24. Details:
 ./scripts/smoke-test.ps1          # HTTP smoke test of a running stack
 ./scripts/gateway-diagnostics.ps1 # GATEWAY configuration report (contacts nothing)
 ./scripts/gateway-diagnostics.ps1 -Live  # explicit opt-in: a few bounded read-only provider calls
+./scripts/radar-diagnostics.ps1   # RADAR policy tests and local registry state (contacts nothing)
 ./scripts/stop.ps1                # stop containers (data is kept)
 ```
 

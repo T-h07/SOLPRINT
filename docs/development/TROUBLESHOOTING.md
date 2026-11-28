@@ -119,3 +119,37 @@ verified wallet trades
 re-decodes stored evidence without provider traffic. It writes a new revision only when
 the decoder version changed (`de-2026.11.1` today). Identical evidence and version are
 left `Unchanged`.
+
+## RADAR
+
+**The registry is empty.** Autonomous discovery is off by default
+(`RADAR_AUTO_DISCOVERY_ENABLED=false`). RADAR then only evaluates wallets that already
+have evidence. To add one without discovery, run `solprint radar investigate <ADDRESS>`.
+Enabling discovery is the owner's decision. It spends Helius credits
+([RADAR_CAPACITY_MODEL.md](../architecture/RADAR_CAPACITY_MODEL.md)).
+
+**Budget mode is `PAUSED` or jobs are deferred as `BUDGET_*`.** RADAR follows GATEWAY's
+budget state. `CONSERVATION` allows only stage A history and local-activity samples.
+`CRITICAL`, exhausted or unknown usage pauses all provider work. Check the GATEWAY Budget
+pane first. Do not raise credits above the plan or reduce the reserve to unblock RADAR.
+
+**A source shows `PROVIDER_COOLDOWN` or `FAILED`.** A listing provider failed or is rate
+limited. The outcome is recorded and retried on a later cycle, and local sources keep
+running. RADAR never retries faster than GATEWAY allows.
+
+**A wallet stays `INSUFFICIENT_EVIDENCE` or eligibility `PROVISIONAL`.** Its swaps are
+not yet finalized, verified and attributed to it as signer. Finalization arrives as
+DATA ENGINE `TransactionFinalized` events. Fee-payer-only and program-controlled swaps
+never make a wallet a candidate.
+
+**Qualification says `INSUFFICIENT_FINANCIAL_EVIDENCE`.** Too few matched outcomes or too
+little matched coverage. Unknown cost basis is not treated as zero, so the screen does not
+pass. This is a statement about the evidence, not about the wallet.
+
+**A wallet is `DORMANT` although it may still trade.** Dormancy needs history coverage of
+the inactivity window. Run `solprint radar reactivate <ADDRESS>`, or wait for new
+activity, which reactivates it automatically.
+
+**`solprint radar cycle` does nothing.** The running service picks the request up within
+about 15 seconds, and only if RADAR is enabled, discovery is on, it is not paused and
+budget admission allows it. `solprint radar status` shows which of these applies.

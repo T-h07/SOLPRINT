@@ -48,12 +48,15 @@ cost registry together.
 | -------------------------------- | ----------------------------------------------------------------- | -------------------------------- | ---------------- | ---------------------------------------------- |
 | Price V3                         | `GET https://api.jup.ag/price/v3?ids=` header `x-api-key`         | shared general bucket            | 50 ids           | Enabled                                        |
 | Tokens V2 search                 | `GET https://api.jup.ag/tokens/v2/search?query=`                  | shared general bucket            | 100 mints        | Enabled                                        |
-| Tokens V2 tag / category / recent | `GET /tokens/v2/tag`, `/{category}/{interval}`, `/recent`        | shared general bucket            | —                | **Not implemented** (no approved use)          |
+| Tokens V2 category               | `GET /tokens/v2/{toporganicscore\|toptraded\|toptrending}/{5m\|1h\|6h\|24h}?limit=` | shared general bucket | `limit` 1–100 | Enabled for RADAR market discovery (Phase 03); only runs when `RADAR_AUTO_DISCOVERY_ENABLED=true`; cached 60 s fresh / 300 s stale |
+| Tokens V2 recent                 | `GET /tokens/v2/recent` (mints whose first pool was created recently) | shared general bucket       | —                | Enabled for RADAR market discovery (Phase 03); same opt-in and cache |
+| Tokens V2 tag                    | `GET /tokens/v2/tag`                                              | shared general bucket            | —                | **Not implemented** (no approved use)          |
 | Swap V2 order, quote only        | `GET https://api.jup.ag/swap/v2/order?inputMint&outputMint&amount[&slippageBps]` with **no** `taker` | shared general bucket | — | Enabled; GATEWAY rejects any response that carries a transaction |
 | Swap V2 execute / build; tx submit | `POST /swap/v2/execute`, `/swap/v2/build`, `tx.jup.ag`, `/tx/v1/submit` | separate             | —                | **Prohibited**; paths are blocklisted in the transport |
 | lite-api, Ultra, Swap V1 `/quote` | —                                                                | —                                | —                | Deprecated; not used                           |
 
 - **Limits:** with a key, 1 req/s and 60 req/min. Without a key, 0.5 req/s and 30 req/min. The window is a 60-second sliding window, counted per organisation.
+- **Discovery listings (Phase 03):** category and recent listings are the token rows Tokens V2 search returns, with optional per-window stats. Jupiter documents that generic tokens such as SOL and USDC are filtered out. GATEWAY parses counts only as exact non-negative integers and leaves anything else unknown. They cost no Helius credits but share the Jupiter bucket, so one RADAR cycle sends at most one request per listing, and the cache coalesces repeated cycles. Operations: `jupiter.tokens.category`, `jupiter.tokens.recent`.
 - **Shared bucket:** price, token and swap requests share one bucket. GATEWAY therefore keeps one `jupiter.general` limiter for all three.
 - **Rate-limit headers:** `x-ratelimit-remaining`, `x-ratelimit-current`, `x-ratelimit-reset` (unix seconds), sent on 200 and 429 responses. There is no lockout after a 429.
 - **Price V3 response:**
