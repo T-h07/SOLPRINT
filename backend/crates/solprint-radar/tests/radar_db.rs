@@ -353,8 +353,16 @@ async fn autonomous_discovery_from_an_empty_registry() {
         ("SUPPORTED", Some("RAYDIUM_AMM_V4"))
     );
 
-    let ok = run(&w, 40, async |w: &World| {
-        lifecycle_of(w, &addr("wallet:trader")).await.as_deref() == Some(lc::MONITORED)
+    // Monitoring and finality advance independently: wait for both (the
+    // DATA ENGINE's TransactionFinalized events turn PROVISIONAL into
+    // ELIGIBLE once RADAR consumes them).
+    let ok = run(&w, 60, async |w: &World| {
+        w.db.radar_wallet(&addr("wallet:trader"))
+            .await
+            .unwrap()
+            .is_some_and(|t| {
+                t.lifecycle == lc::MONITORED && t.eligibility == eligibility::ELIGIBLE_CANDIDATE
+            })
     })
     .await;
     let t =
@@ -364,8 +372,8 @@ async fn autonomous_discovery_from_an_empty_registry() {
             .expect("trader discovered");
     assert!(
         ok,
-        "trader ended in {} ({:?})",
-        t.lifecycle, t.qualification
+        "trader ended in {} / {} ({:?})",
+        t.lifecycle, t.eligibility, t.qualification
     );
     assert_eq!(t.eligibility, eligibility::ELIGIBLE_CANDIDATE);
     assert_eq!(t.history_stage, "C");

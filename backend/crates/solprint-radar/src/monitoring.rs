@@ -22,6 +22,9 @@ pub struct Candidate {
     pub address: String,
     pub priority: Decimal,
     pub last_ended_at: Option<OffsetDateTime>,
+    /// No verified trade within the reduce-monitoring window (or none
+    /// known): released from monitoring and never started.
+    pub quiet: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,7 +44,9 @@ pub struct Plan {
 }
 
 /// Plan one rotation pass. `current` assignments whose wallet is no longer a
-/// candidate are released at once (`NO_LONGER_QUALIFIED`).
+/// candidate are released at once (`NO_LONGER_QUALIFIED`); quiet wallets are
+/// released (`REDUCED_ACTIVITY`) regardless of tenure, so inactive wallets
+/// leave the expensive workload before dormancy.
 #[must_use]
 pub fn rotate(
     current: &[Assignment],
@@ -52,10 +57,10 @@ pub fn rotate(
     let mut plan = Plan::default();
     let mut kept: Vec<&Assignment> = Vec::new();
     for a in current {
-        if candidates.iter().any(|c| c.address == a.address) {
-            kept.push(a);
-        } else {
-            plan.stop.push((a.address.clone(), "NO_LONGER_QUALIFIED"));
+        match candidates.iter().find(|c| c.address == a.address) {
+            Some(c) if c.quiet => plan.stop.push((a.address.clone(), "REDUCED_ACTIVITY")),
+            Some(_) => kept.push(a),
+            None => plan.stop.push((a.address.clone(), "NO_LONGER_QUALIFIED")),
         }
     }
     // Over capacity (the ceiling shrank): release the weakest first.
@@ -67,7 +72,7 @@ pub fn rotate(
     }
     let mut challengers: Vec<&Candidate> = candidates
         .iter()
-        .filter(|c| !kept.iter().any(|a| a.address == c.address))
+        .filter(|c| !c.quiet && !kept.iter().any(|a| a.address == c.address))
         .filter(|c| c.last_ended_at.is_none_or(|e| now - e >= p.cooldown))
         .collect();
     challengers.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.address.cmp(&b.address)));
@@ -116,6 +121,7 @@ mod tests {
             address: a.to_owned(),
             priority: Decimal::from(p),
             last_ended_at: None,
+            quiet: false,
         }
     }
 
@@ -186,5 +192,22 @@ mod tests {
         assert_eq!(p.stop, vec![("b".to_owned(), "CAPACITY_REDUCED")]);
         let p = rotate(&cur, &[cand("a", 60), cand("b", 40)], &pol(0), now());
         assert_eq!(p.stop.len(), 2);
+    }
+
+    #[test]
+    fn quiet_wallets_leave_monitoring_and_are_not_started() {
+        let mut quiet = cand("a", 90);
+        quiet.quiet = true;
+        let mut quiet_challenger = cand("c", 99);
+        quiet_challenger.quiet = true;
+        // Released even before the minimum tenure; the quiet challenger is skipped.
+        let p = rotate(
+            &[asg("a", 90, 10)],
+            &[quiet, quiet_challenger, cand("b", 20)],
+            &pol(1),
+            now(),
+        );
+        assert_eq!(p.stop, vec![("a".to_owned(), "REDUCED_ACTIVITY")]);
+        assert_eq!(p.start, vec!["b".to_owned()]);
     }
 }

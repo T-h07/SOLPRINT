@@ -1972,6 +1972,10 @@ impl<F: MarketFeed> Radar<F> {
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(Decimal::ZERO),
                 last_ended_at: ended.get(&w.address).map(odt),
+                quiet: w.last_verified_trade_at.as_ref().is_none_or(|t| {
+                    at - odt(t)
+                        >= time::Duration::days(i64::from(self.cfg.reduce_monitoring_after_days))
+                }),
             })
             .collect();
         let current_rows = self.db.radar_monitoring(true, 1000).await?;
