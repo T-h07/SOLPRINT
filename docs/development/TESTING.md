@@ -139,6 +139,55 @@ transactions ([DECODER_CAPABILITIES.md](../architecture/DECODER_CAPABILITIES.md)
 Real-provider ingestion (`-Live`) is an owner-run diagnostic and is never part of a
 normal test run.
 
+## RADAR coverage (Phase 03)
+
+No test contacts a real provider. Discovery listings come from a fixture feed, and chain
+data comes from the DATA ENGINE over an in-memory `ChainSource`. Wallets, pools and
+mints in fixtures are synthetic.
+
+* Unit (`crates/solprint-radar/src/**`, 42 tests, no database):
+  * market classification (known mints excluded, launchpad pools, tags over heuristics)
+    and the universe: bucket allocation, missing fields defer instead of reading as zero,
+    stale observations and recently sampled pools defer, promotional-only and excluded
+    classes, no market picked twice;
+  * wallet eligibility rules and evidence-gated, ordered qualification;
+  * FIFO screening with exact `Decimal` arithmetic: pre-existing inventory has unknown
+    cost and is never zero cost, unobserved outflows taint a cycle, partial sells
+    allocate cost exactly, denominations never mix, fees count only when the wallet paid
+    them, open positions are not outcomes; activity windows;
+  * priority: bounded, recency half-life, shrinkage toward neutral with few outcomes, and
+    the documented value without outcomes;
+  * lifecycle (progressive stages, coverage-gated dormancy, archival and reactivation),
+    monitoring rotation (hysteresis, tenure, cooldown, capacity, reduced activity) and
+    budget admission (share of remaining minus outstanding; degraded or unknown pauses).
+* `tests/radar_db.rs` (PostgreSQL, via `test.ps1`), all end to end through the real
+  DATA ENGINE:
+  * an autonomous cycle from an empty registry: listings, pool validation, sampling,
+    staged history A to C, screening, priority, qualification and monitoring;
+  * event redelivery is idempotent, and a `SwapRetracted` invalidates the evidence;
+  * degraded or unknown budget pauses provider work;
+  * a provider outage is recorded, and local sources still run;
+  * with discovery off, no provider job runs;
+  * a restart resumes from durable state without duplicate jobs;
+  * operator controls and registry queries;
+  * dormancy is coverage-aware, and new activity reactivates a wallet.
+* `tests/radar_scale.rs`: an opt-in registry scale benchmark (`SOLPRINT_RADAR_SCALE=1`,
+  100 to 10,000 wallets). It is ignored and a no-op in routine runs
+  ([RADAR_CAPACITY_MODEL.md](../architecture/RADAR_CAPACITY_MODEL.md)).
+* `benches/radar_bench.rs`: CPU policy benchmarks (`cargo bench -p solprint-radar`).
+* `solprint-api/tests/http.rs`: every `/api/v1/radar/*` endpoint is read-only, queries
+  are validated before storage is touched, reads return a 503 envelope when the database
+  is down, and the registry is served from local state.
+* Frontend: `tests/unit/radar.test.ts` covers formatting and guards.
+  `tests/ui/shell.spec.ts` (`radar workspace`) covers states as text, the lifecycle
+  filter, the keyboard wallet inspector (focus returns on Esc), paused discovery with a
+  conservation budget, and the empty, database-down, offline and loading states. The
+  visual baselines are `radar-*` (candidates until the owner approves them).
+
+`./scripts/radar-diagnostics.ps1` runs the policy tests and reads local state.
+`-EndToEnd` runs `radar_db` on its own disposable container. `-Live -RequestCycle` is an
+owner-run opt-in and is never part of a normal test run.
+
 ## Frontend coverage
 
 * Unit: number/time formatting (u64 exactness, rounding, signs), connection-state

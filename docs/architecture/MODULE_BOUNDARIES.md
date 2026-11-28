@@ -10,8 +10,9 @@
 | `solprint-storage` | core, config |
 | `solprint-gateway` | core, config, storage |
 | `solprint-data-engine` | core, config, storage, gateway |
-| `solprint-api` | core, config, observability, storage, gateway, data-engine |
-| `solprint-app` | api, config, core, gateway, data-engine, observability, storage |
+| `solprint-radar` | core, config, storage, gateway, data-engine |
+| `solprint-api` | core, config, observability, storage, gateway, data-engine, radar |
+| `solprint-app` | api, config, core, gateway, data-engine, radar, observability, storage |
 
 Rules:
 
@@ -37,7 +38,14 @@ Rules:
    GATEWAY returns. It persists only through `solprint_storage::Database`'s `de_*`
    functions. The API reads Data Engine state from storage; it never triggers ingestion
    or provider traffic.
-8. **Secrets stay in `solprint-config`'s `Secret<T>`** until the exact point of use. No
+8. **`solprint-radar` reads chain data only through the DATA ENGINE.** It consumes
+   DATA ENGINE outbox events (consumer `radar`) and normalized records, and requests
+   history as bounded DATA ENGINE backfills. Discovery listings come through GATEWAY's
+   typed traits. It never decodes transactions, never holds an HTTP client and persists
+   only through `solprint_storage::Database`'s `radar_*` functions. Later phases read
+   RADAR through `solprint_radar::query` and its outbox events, never its tables
+   ([RADAR.md](RADAR.md)).
+9. **Secrets stay in `solprint-config`'s `Secret<T>`** until the exact point of use. No
    crate logs a `Secret` (its `Debug` is redacted and it has no `Display`).
 
 ## Future modules

@@ -101,6 +101,9 @@ transaction's revision.
 default it takes those decoded by an older decoder version; `--all` takes every
 transaction. Reprocessing decodes the **stored canonical evidence** and contacts no
 provider. The same evidence hash and decoder version produce no write (`Unchanged`). A
+refetch at a stronger commitment that returns the same evidence still advances finality
+exactly as a status check does: the transaction and its swaps are promoted, `finalized_at`
+is set and `TransactionFinalized` is emitted. A
 new decoder version writes a new revision, and swaps that vanish are retracted
 ([FINALITY_AND_RECONCILIATION.md](FINALITY_AND_RECONCILIATION.md#corrections-and-retractions)).
 
@@ -124,10 +127,11 @@ source, observed and source times, a correlation id and a quality state. The uni
 publishes a second copy. Finality events carry the transaction's current revision.
 
 **Delivery is at least once.** Consumers must be idempotent, keyed by `event_id`.
-Delivery state is per consumer (`de_outbox_deliveries`) and survives restarts. Phase 02
-has one built-in consumer, `diagnostic_log`, which records delivery counts per event type
-for monitoring. Future modules subscribe as additional consumers. They must not read
-decoder internals.
+Delivery state is per consumer (`de_outbox_deliveries`) and survives restarts. There are
+two consumers: `diagnostic_log` records delivery counts per event type for monitoring,
+and `radar` (Phase 03) turns `SwapRecorded`, `SwapRetracted` and `TransactionFinalized`
+into wallet evidence ([RADAR.md](RADAR.md)). Future modules subscribe as additional
+consumers. They must not read decoder internals.
 
 ## Data quality
 
@@ -223,5 +227,5 @@ Later modules (wallet intelligence, CORTEX, GUARD) consume:
 - the read models (verified swaps by wallet, mint or protocol, with finality and status);
 - the outbox events.
 
-They do not consume provider data or decoder internals. Phase 02 implements none of those
-modules.
+They do not consume provider data or decoder internals. RADAR (Phase 03) is the first such
+consumer.
