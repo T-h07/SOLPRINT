@@ -114,7 +114,15 @@ test.describe('navigation and keyboard', () => {
 });
 
 test.describe('accessibility (axe, WCAG 2.2 AA)', () => {
-  for (const path of ['/', '/gateway', '/data', '/system', '/design-system', '/does-not-exist']) {
+  for (const path of [
+    '/',
+    '/gateway',
+    '/data',
+    '/radar',
+    '/system',
+    '/design-system',
+    '/does-not-exist',
+  ]) {
     test(`no violations on ${path}`, async ({ page }) => {
       await mockBackend(page, 'healthy');
       await page.goto(path);
@@ -142,7 +150,7 @@ test.describe('accessibility (axe, WCAG 2.2 AA)', () => {
 
 test.describe('responsive layout', () => {
   for (const vp of VIEWPORTS) {
-    for (const path of ['/', '/gateway', '/data', '/system', '/design-system']) {
+    for (const path of ['/', '/gateway', '/data', '/radar', '/system', '/design-system']) {
       test(`no horizontal overflow at ${vp.name} on ${path}`, async ({ page }) => {
         await page.setViewportSize({ width: vp.width, height: vp.height });
         await mockBackend(page, 'healthy');
@@ -331,6 +339,107 @@ test.describe('data engine workspace', () => {
     await page.goto('/data');
     await expect(page.locator('[aria-busy="true"]').first()).toBeVisible();
     await expect(page.getByText('0.5000')).toHaveCount(0);
+    expect(await axe(page)).toEqual([]);
+  });
+});
+
+test.describe('radar workspace', () => {
+  test('registry renders states as text and priority with its disclaimer', async ({ page }) => {
+    const errors = trackErrors(page);
+    await mockBackend(page, 'healthy');
+    await page.goto('/radar');
+    await settle(page);
+    const registry = page.getByRole('region', { name: 'Wallet registry' });
+    await expect(registry.locator('tbody tr')).toHaveCount(9);
+    await expect(registry.getByText('71.3', { exact: true })).toBeVisible();
+    await expect(registry.locator('tbody').getByText('Monitored').first()).toBeVisible();
+    await expect(page.getByText(/not a prediction, a recommendation/i)).toBeVisible();
+    // Monitored wallets are refreshed from history; live monitoring is not claimed.
+    await expect(
+      page
+        .getByText(/periodic refresh/i)
+        .filter({ visible: true })
+        .first(),
+    ).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test('lifecycle filter narrows the registry', async ({ page }) => {
+    await mockBackend(page, 'healthy');
+    await page.goto('/radar');
+    await settle(page);
+    await page.getByLabel('Filter wallets by lifecycle').selectOption('REJECTED');
+    await settle(page);
+    const registry = page.getByRole('region', { name: 'Wallet registry' });
+    await expect(registry.locator('tbody tr')).toHaveCount(2);
+  });
+
+  test('wallet inspector opens by keyboard, explains the score and returns focus on Esc', async ({
+    page,
+  }) => {
+    await mockBackend(page, 'healthy');
+    await page.goto('/radar');
+    await settle(page);
+    const trigger = page
+      .getByRole('region', { name: 'Wallet registry' })
+      .getByRole('button')
+      .first();
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+    const dialog = page.getByRole('dialog', { name: 'Wallet' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator('[aria-busy="true"]')).toHaveCount(0);
+    await expect(dialog.getByText('Priority components')).toBeVisible();
+    await expect(dialog.getByRole('heading', { name: /matched outcomes/i })).toBeVisible();
+    await expect(dialog.getByText(/retracted orphaned|retracted/i).first()).toBeVisible();
+    expect(await axe(page)).toEqual([]);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(trigger).toBeFocused();
+  });
+
+  test('empty registry explains how wallets get discovered', async ({ page }) => {
+    await mockBackend(page, 'radar-empty');
+    await page.goto('/radar');
+    await settle(page);
+    await expect(page.getByText('No wallets discovered yet.')).toBeVisible();
+    await expect(page.getByText('No markets recorded.')).toBeVisible();
+    await expect(page.getByText('No discovery cycle has run.').first()).toBeVisible();
+    expect(await axe(page)).toEqual([]);
+  });
+
+  test('paused discovery and conservation budget are spelled out', async ({ page }) => {
+    await mockBackend(page, 'radar-paused');
+    await page.goto('/radar');
+    await settle(page);
+    await expect(page.getByText(/paused/i).first()).toBeVisible();
+    await expect(page.getByText('Conservation').first()).toBeVisible();
+    expect(await axe(page)).toEqual([]);
+  });
+
+  test('database down: panes name the database instead of showing empty', async ({ page }) => {
+    await mockBackend(page, 'database-down');
+    await page.goto('/radar');
+    await settle(page);
+    await expect(
+      page.getByText(/wallet registry unavailable: the backend could not read its database/i),
+    ).toBeVisible();
+    await expect(page.getByText('No wallets discovered yet.')).toHaveCount(0);
+    expect(await axe(page)).toEqual([]);
+  });
+
+  test('offline: panes report the backend failure with a safe retry', async ({ page }) => {
+    await mockBackend(page, 'offline');
+    await page.goto('/radar');
+    await expect(page.getByText(/radar state unavailable: backend unreachable/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Retry' }).first()).toBeVisible();
+  });
+
+  test('loading: skeletons only, no values', async ({ page }) => {
+    await mockBackend(page, 'loading');
+    await page.goto('/radar');
+    await expect(page.locator('[aria-busy="true"]').first()).toBeVisible();
+    await expect(page.getByText('71.3')).toHaveCount(0);
     expect(await axe(page)).toEqual([]);
   });
 });

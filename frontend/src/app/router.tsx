@@ -6,6 +6,7 @@ import { DataPage } from '@/pages/DataPage.tsx';
 import { GatewayPage } from '@/pages/GatewayPage.tsx';
 import { NotFoundPage } from '@/pages/NotFoundPage.tsx';
 import { OverviewPage } from '@/pages/OverviewPage.tsx';
+import { RadarPage } from '@/pages/RadarPage.tsx';
 import { SystemPage } from '@/pages/SystemPage.tsx';
 
 import { RouteError } from './ErrorBoundary.tsx';
@@ -30,6 +31,7 @@ export const routes: RouteObject[] = [
       { index: true, element: <OverviewPage /> },
       { path: 'gateway', element: <GatewayPage /> },
       { path: 'data', element: <DataPage /> },
+      { path: 'radar', element: <RadarPage /> },
       { path: 'system', element: <SystemPage /> },
       ...(DesignSystemPage
         ? [

@@ -171,6 +171,45 @@ state. Status polls every 5 s and lists every 15 s; lists are marked stale after
 Shared pane helpers (`LoadFailure`, `Age`, `RowsSkeleton`, `Unreachable`) live in
 `features/shared` and are used by both workspaces.
 
+## Radar workspace (`/radar`, Phase 03)
+
+`features/radar/panels.tsx` and `features/radar/WalletInspector.tsx`, laid out by
+`pages/RadarPage.tsx` on a three-column grid at ≥ 1200 px (`xl`; single column below).
+The page is read-only. The only controls are the registry's lifecycle filter and sort,
+and these change only what is displayed. Pause, resume, cycle requests, exclusion,
+reactivation and cancellation are operations of the `solprint radar` CLI and are recorded
+as operator actions. Eye flow: is discovery running and may it spend credits → the
+registry (RADAR's output) → where wallets come from → the work behind it.
+
+| Pane | Content | Notes |
+|---|---|---|
+| Discovery (2 cols) | wallets and new in 24 h, investigating, monitored of capacity, markets and selected; discovery state (on / off / paused by operator, with reason), process, execution (`None · read-only discovery`), registry by lifecycle in fixed order, evidence with invalidated and reactivations, last cycle, open work and deferrals, live monitoring | live monitoring is stated as unavailable, with monitored wallets on periodic history refresh |
+| Provider budget | admission (`Full` / `Conservation` / `Paused`, with reason), gateway budget state, RADAR share, allowance, available and reserved, credits spent in 24 h by work class, history stage scopes | a ledger that is not loaded is named; the pane never fills in an allowance |
+| Wallet registry (3 cols) | address (opens the inspector) with eligibility, priority (0–100, one decimal, truncated), lifecycle, qualification (≥ 1024 px), history stage with coverage (≥ 768 px), verified swaps and distinct tokens (≥ 640 px), last verified trade (≥ 1200 px), monitoring mode (≥ 1536 px) | lifecycle filter and sort sit in a toolbar row inside the pane so they wrap at 390 px; a permanent footnote says priority orders RADAR's own work and is not a prediction, a recommendation or a measure of skill, and that wallets are identified by address only |
+| Market universe (2 cols) | token, classification and bucket; selection with reason; best pool with validation and protocol; provider-reported liquidity and activity; wallets found and samples; last observation | promotional-only listings and stale observations are named; a footnote says liquidity and activity are provider-reported at the observation time, not current |
+| Monitoring | slots assigned of capacity, mode, monitored wallets with start time and priority at start | |
+| Work queue (2 cols), Discovery cycles | jobs by work class and subject with state, deferral or result reason, credits estimated and spent; recent cycles with trigger, observations, new and selected markets, samples, estimated credits | |
+| Discovery sources (3 cols) | per source over the window: runs (ok, deferred, failed), last status, items, new markets, provider requests, evidence, unique, eligible, investigated and qualified wallets | footnote: yield is attributed to the source that first led to each wallet's evidence |
+
+Wallet inspector (`Drawer`): summary (lifecycle, eligibility and qualification with
+reasons, discovery sources, first discovery, last trade, operator exclusion); the priority
+components table with weights (activity 0.25, recency 0.15, evidence quality 0.25,
+performance 0.25 with its shrinkage status, diversity 0.10) and the policy version;
+matched FIFO outcomes per quote denomination (cost and proceeds as raw strings formatted
+with `BigInt` at the denomination's decimals, return ratio, wins, incomplete fees; never
+summed across denominations, no USD); activity windows; coverage and retrieval; recent
+work; lifecycle history; and evidence swaps with finality and invalidation. An unknown
+address shows an empty state, not an error.
+
+Formatting and states: `features/radar/labels.ts` maps every known lifecycle,
+eligibility, qualification, coverage, monitoring, job, cycle, source-run, selection,
+pool and budget-mode value to text plus glyph. Unknown values are shown verbatim in
+neutral. `positive` is used only for completed or verified states, never for "good
+wallet". `formatScore` and `formatComponent` truncate toward zero, so no score is shown
+higher than computed. Polling and staleness match the data engine workspace: status every
+5 s, lists every 15 s, stale after 45 s. If the database is down, every pane names the
+database; nothing is shown as empty or zero.
+
 ## Data states (mandatory for every data component)
 
 | State | Treatment |

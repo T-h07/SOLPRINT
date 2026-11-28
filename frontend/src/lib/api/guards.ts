@@ -21,6 +21,16 @@ import type {
   GatewayStatus,
   GatewayStreamsResponse,
   GatewayUsageResponse,
+  RadarCyclesResponse,
+  RadarEvidenceResponse,
+  RadarHistoryResponse,
+  RadarJobsResponse,
+  RadarMarketsResponse,
+  RadarMonitoringResponse,
+  RadarSourcesResponse,
+  RadarStatus,
+  RadarWalletDetail,
+  RadarWalletsResponse,
   ReadyResponse,
   SystemStatus,
   VersionInfo,
@@ -233,4 +243,104 @@ export function isDataDecoders(v: unknown): v is DataDecodersResponse {
     Array.isArray(v.decoders) &&
     v.decoders.every((d) => isObj(d) && isStr(d.id) && isStr(d.protocol) && isStr(d.program_id))
   );
+}
+
+// RADAR. A score or a state the UI cannot read must never render as a value.
+
+const isBool = (v: unknown): v is boolean => typeof v === 'boolean';
+
+function isRadarWallet(v: unknown): boolean {
+  return (
+    isObj(v) &&
+    isStr(v.address) &&
+    isStr(v.lifecycle) &&
+    isStr(v.eligibility) &&
+    isStrOrNull(v.qualification) &&
+    isStrOrNull(v.priority_score) &&
+    isStr(v.history_stage) &&
+    isStr(v.coverage_state) &&
+    isStr(v.monitoring_mode) &&
+    isNum(v.verified_swaps)
+  );
+}
+
+export function isRadarStatus(v: unknown): v is RadarStatus {
+  return (
+    isObj(v) &&
+    isBool(v.enabled) &&
+    isBool(v.running) &&
+    isBool(v.auto_discovery_enabled) &&
+    isBool(v.paused) &&
+    isStr(v.timestamp) &&
+    isObj(v.budget) &&
+    isStr(v.budget.mode) &&
+    isNum(v.budget.available) &&
+    isObj(v.registry) &&
+    isNum(v.registry.wallets) &&
+    isObj(v.markets) &&
+    isObj(v.jobs) &&
+    isObj(v.settings) &&
+    Array.isArray(v.settings.history_stages)
+  );
+}
+
+export function isRadarWallets(v: unknown): v is RadarWalletsResponse {
+  return (
+    isObj(v) && Array.isArray(v.items) && v.items.every(isRadarWallet) && isStrOrNull(v.next_cursor)
+  );
+}
+
+export function isRadarWalletDetail(v: unknown): v is RadarWalletDetail {
+  return (
+    isObj(v) &&
+    isRadarWallet(v.wallet) &&
+    Array.isArray(v.discovery_sources) &&
+    (v.metrics === null ||
+      (isObj(v.metrics) && isObj(v.metrics.priority) && Array.isArray(v.metrics.activity))) &&
+    isObj(v.retrieval) &&
+    Array.isArray(v.monitoring) &&
+    Array.isArray(v.recent_jobs)
+  );
+}
+
+export function isRadarEvidence(v: unknown): v is RadarEvidenceResponse {
+  return (
+    isObj(v) &&
+    isStr(v.address) &&
+    Array.isArray(v.items) &&
+    v.items.every((e) => isObj(e) && isStr(e.signature) && isBool(e.valid))
+  );
+}
+
+export function isRadarHistory(v: unknown): v is RadarHistoryResponse {
+  return (
+    isObj(v) &&
+    isStr(v.address) &&
+    Array.isArray(v.items) &&
+    v.items.every((t) => isObj(t) && isStr(t.to_state) && Array.isArray(t.reasons))
+  );
+}
+
+export function isRadarMarkets(v: unknown): v is RadarMarketsResponse {
+  return (
+    isObj(v) &&
+    Array.isArray(v.items) &&
+    v.items.every((m) => isObj(m) && isStr(m.mint) && isBool(m.stale) && Array.isArray(m.pools))
+  );
+}
+
+export function isRadarSources(v: unknown): v is RadarSourcesResponse {
+  return isObj(v) && isNum(v.window_hours) && Array.isArray(v.items);
+}
+
+export function isRadarJobs(v: unknown): v is RadarJobsResponse {
+  return isObj(v) && isObj(v.totals) && isNum(v.totals.open) && Array.isArray(v.items);
+}
+
+export function isRadarMonitoring(v: unknown): v is RadarMonitoringResponse {
+  return isObj(v) && isNum(v.capacity) && isBool(v.live_available) && Array.isArray(v.items);
+}
+
+export function isRadarCycles(v: unknown): v is RadarCyclesResponse {
+  return isObj(v) && Array.isArray(v.items);
 }

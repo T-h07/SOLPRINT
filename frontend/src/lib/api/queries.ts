@@ -22,6 +22,16 @@ import type {
   GatewayStatus,
   GatewayStreamsResponse,
   GatewayUsageResponse,
+  RadarCyclesResponse,
+  RadarEvidenceResponse,
+  RadarHistoryResponse,
+  RadarJobsResponse,
+  RadarMarketsResponse,
+  RadarMonitoringResponse,
+  RadarSourcesResponse,
+  RadarStatus,
+  RadarWalletDetail,
+  RadarWalletsResponse,
   ReadyResponse,
   SystemStatus,
   VersionInfo,
@@ -45,6 +55,16 @@ import {
   isGatewayStatus,
   isGatewayStreams,
   isGatewayUsage,
+  isRadarCycles,
+  isRadarEvidence,
+  isRadarHistory,
+  isRadarJobs,
+  isRadarMarkets,
+  isRadarMonitoring,
+  isRadarSources,
+  isRadarStatus,
+  isRadarWalletDetail,
+  isRadarWallets,
   isReadyResponse,
   isSystemStatus,
   isVersionInfo,
@@ -60,6 +80,7 @@ export const queryKeys = {
   version: ['system', 'version'] as const,
   gateway: (part: string) => ['gateway', part] as const,
   data: (part: string, ...args: (string | null)[]) => ['data', part, ...args] as const,
+  radar: (part: string, ...args: (string | null)[]) => ['radar', part, ...args] as const,
 };
 
 /**
@@ -243,4 +264,119 @@ export function useDataTransaction(signature: string | null) {
     enabled: valid,
     refetchInterval: DATA_LIST_POLL_INTERVAL_MS,
   });
+}
+
+// RADAR. Endpoints read PostgreSQL, GATEWAY's in-memory budget snapshot and
+// in-process counters only: polling them never causes a provider request and
+// never schedules discovery or investigation work.
+
+export const RADAR_LIST_POLL_INTERVAL_MS = 15_000;
+export const RADAR_LIST_STALE_AFTER_MS = 45_000;
+
+export function useRadarStatus() {
+  return useQuery<ApiResponse<RadarStatus>>({
+    queryKey: queryKeys.radar('status'),
+    queryFn: ({ signal }) => getJson('/api/v1/radar/status', { signal, guard: isRadarStatus }),
+    refetchInterval: POLL_INTERVAL_MS,
+  });
+}
+
+function radarList<T>(
+  part: string,
+  path: string,
+  guard: (v: unknown) => v is T,
+  key: string | null = null,
+  enabled = true,
+) {
+  return {
+    queryKey: queryKeys.radar(part, key),
+    queryFn: ({ signal }: { signal: AbortSignal }) => getJson(path, { signal, guard }),
+    refetchInterval: RADAR_LIST_POLL_INTERVAL_MS,
+    enabled,
+  };
+}
+
+const ENUM = /^[A-Z0-9_]{1,40}$/;
+const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+export type WalletSortKey = 'PRIORITY' | 'DISCOVERED' | 'LAST_TRADE';
+
+export function useRadarWallets(lifecycle: string | null, sort: WalletSortKey) {
+  const l = lifecycle && ENUM.test(lifecycle) ? `&lifecycle=${lifecycle}` : '';
+  return useQuery<ApiResponse<RadarWalletsResponse>>(
+    radarList(
+      'wallets',
+      `/api/v1/radar/wallets?limit=50&sort=${sort}${l}`,
+      isRadarWallets,
+      `${lifecycle ?? ''}:${sort}`,
+    ),
+  );
+}
+
+const validAddress = (a: string | null): a is string => a !== null && ADDRESS.test(a);
+
+export function useRadarWallet(address: string | null) {
+  return useQuery<ApiResponse<RadarWalletDetail>>(
+    radarList(
+      'wallet',
+      `/api/v1/radar/wallets/${address ?? ''}`,
+      isRadarWalletDetail,
+      address,
+      validAddress(address),
+    ),
+  );
+}
+
+export function useRadarWalletEvidence(address: string | null) {
+  return useQuery<ApiResponse<RadarEvidenceResponse>>(
+    radarList(
+      'evidence',
+      `/api/v1/radar/wallets/${address ?? ''}/evidence?limit=25`,
+      isRadarEvidence,
+      address,
+      validAddress(address),
+    ),
+  );
+}
+
+export function useRadarWalletHistory(address: string | null) {
+  return useQuery<ApiResponse<RadarHistoryResponse>>(
+    radarList(
+      'history',
+      `/api/v1/radar/wallets/${address ?? ''}/history?limit=25`,
+      isRadarHistory,
+      address,
+      validAddress(address),
+    ),
+  );
+}
+
+export function useRadarMarkets() {
+  return useQuery<ApiResponse<RadarMarketsResponse>>(
+    radarList('markets', '/api/v1/radar/markets?limit=25', isRadarMarkets),
+  );
+}
+
+export function useRadarSources() {
+  return useQuery<ApiResponse<RadarSourcesResponse>>(
+    radarList('sources', '/api/v1/radar/sources?window_hours=24', isRadarSources),
+  );
+}
+
+export function useRadarJobs() {
+  return useQuery<ApiResponse<RadarJobsResponse>>(
+    radarList('jobs', '/api/v1/radar/jobs?limit=20', isRadarJobs),
+  );
+}
+
+export function useRadarMonitoring() {
+  return useQuery<ApiResponse<RadarMonitoringResponse>>(
+    radarList('monitoring', '/api/v1/radar/monitoring', isRadarMonitoring),
+  );
+}
+
+export function useRadarCycles() {
+  return useQuery<ApiResponse<RadarCyclesResponse>>(
+    radarList('cycles', '/api/v1/radar/cycles?limit=8', isRadarCycles),
+  );
 }
