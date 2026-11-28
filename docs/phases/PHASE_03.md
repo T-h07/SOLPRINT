@@ -131,7 +131,7 @@ No criterion claims verification against a live provider.
 | ID | Criterion | Status | Evidence |
 |---|---|---|---|
 | P03-T01 | Correct implementation branch is active | PASS | Commits are pushed to `feature/03-wallet-discovery`, based on `develop` at `d2e27c8` |
-| P03-T02 | Previous-phase regression checks pass | NOT RUN | Filled from the verification run: all GATEWAY and DATA ENGINE tests run in `check.ps1` and `test.ps1` ([Verification log](#verification-log)) |
+| P03-T02 | Previous-phase regression checks pass | PASS | All GATEWAY and DATA ENGINE tests pass in `check.ps1` (Rust 365, Vitest 48) and `test.ps1` (Rust 401); Phase 01 and 02 visual baselines unchanged ([Verification log](#verification-log)) |
 | P03-T03 | RADAR architecture and dependency boundaries are documented | PASS | [RADAR.md](../architecture/RADAR.md) §Placement and boundaries; [MODULE_BOUNDARIES.md](../architecture/MODULE_BOUNDARIES.md) rule 8 and the dependency graph |
 | P03-T04 | All external provider operations pass through GATEWAY | PASS | `solprint-radar` has no HTTP client dependency (`Cargo.toml`). Listings use GATEWAY's typed discovery traits, and chain data comes through the DATA ENGINE's `ChainSource`. The GATEWAY methods are registered with cost and source in PROVIDER_CAPABILITIES |
 | P03-T05 | Transaction interpretation uses the existing Data Engine | PASS | RADAR reads DATA ENGINE swaps and outbox events (`SwapRecorded`, `SwapRetracted`, `TransactionFinalized`) and never decodes transactions. Samples and history are DATA ENGINE backfills (`radar_db::autonomous_discovery_from_an_empty_registry`) |
@@ -264,16 +264,37 @@ No criterion claims verification against a live provider.
 | P03-T97 | Empty-registry autonomous discovery test passes | PASS | `radar_db::autonomous_discovery_from_an_empty_registry`, 10 of 10 consecutive runs after the DATA ENGINE fix |
 | P03-T98 | Real-provider bounded discovery results are honestly reported | NOT RUN | No live cycle was run; it needs the owner's opt-in (Owner actions 2). Nothing in this document is a live measurement |
 | P03-T99 | Existing credentials and database data are preserved | PASS | `.env` was never read or modified; only key names were added to `.env.example`. Every DB test uses a disposable container. The schema change is a new forward-only migration |
-| P03-T100 | Secret scanning and dependency audits pass | NOT RUN | Filled from `verify.ps1` ([Verification log](#verification-log)) |
+| P03-T100 | Secret scanning and dependency audits pass | PASS | `verify.ps1`: gitleaks (revision, staged, full history), cargo deny (advisories, bans, licences, sources), npm audit ([Verification log](#verification-log)) |
 | P03-T101 | Untrusted input and resource bounds are enforced | PASS | `http::radar_queries_are_validated_before_touching_storage`; API and CLI parse addresses with `WalletAddress::parse` and keyset cursors strictly (invalid input is 400, or exit 2 in the CLI); listings are bounded by GATEWAY response limits; all work is capped by validated configuration |
 | P03-T102 | Real execution remains impossible | PASS | Live trading is rejected by configuration. GATEWAY refuses transaction-sending methods. RADAR has no signing or wallet code, and the `deny.toml` bans apply |
-| P03-T103 | Complete local verification passes | NOT RUN | [Verification log](#verification-log) |
-| P03-T104 | Isolated clean-checkout verification passes | NOT RUN | [Verification log](#verification-log) |
+| P03-T103 | Complete local verification passes | PASS | `check.ps1`, `test.ps1`, Playwright ui 70 and visual 48, smoke and e2e 6 ([Verification log](#verification-log)) |
+| P03-T104 | Isolated clean-checkout verification passes | PASS | `verify.ps1` full mode on `48b0d1c` in a clean isolated checkout: 18 of 18 PASS ([Verification log](#verification-log)) |
 | P03-T105 | Documentation is complete | PASS | See "What was built" → Docs and the consolidation note |
 | P03-T106 | No hosted CI/CD is introduced | PASS | No `.github/` directory; verification is local only |
 | P03-T107 | No premature Phase 04 intelligence implementation is introduced | PASS | Priority is an investigation order and qualification a gate for deeper analysis. There are no wallet intelligence profiles, clustering, signals, copy trading or execution |
-| P03-T108 | Feature branch is committed and pushed for owner review | NOT RUN | Filled after the push |
+| P03-T108 | Feature branch is committed and pushed for owner review | PASS | Pushed to `origin/feature/03-wallet-discovery`; not merged, no tag |
 
 ## Verification log
 
 Entries are added when a run completes, with the exact commit it verified.
+
+### 2026-11-28 — `verify.ps1` (full mode) on `48b0d1cb30cbbb39d5e804bfcfd8d41d5ed3c72d`
+
+Toolchain: rustc 1.99.1, Node v24.19.0, Docker 29.9.3; Windows 11. Duration 632 s.
+Exit code 0. All 18 checks PASS:
+
+- secret scans (revision, staged changes and full history) and hadolint;
+- `check.ps1`: Rust 365 and Vitest 48;
+- the production bundle excludes fixtures and the showcase;
+- `test.ps1`: Rust 401, including the 9 RADAR and 16 DATA ENGINE PostgreSQL tests;
+- cargo deny (advisories, bans, licences, sources) and npm audit;
+- Playwright ui 70 and visual 48 (the 11 `radar-*` baselines are candidates; P03-T96);
+- clean image builds, container hardening, smoke test and e2e 6 against the isolated
+  stack;
+- no configured secret in the container logs.
+
+An earlier run on `17037ed` failed one check: the bundle guard found a test-only
+`FIXTURE` label in the RADAR label map. It was removed in `48b0d1c`; the other 17 checks
+passed in that run too.
+
+Commits after `48b0d1c` change this document only.
